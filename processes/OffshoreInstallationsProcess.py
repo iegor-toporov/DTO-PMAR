@@ -5,18 +5,9 @@ import os
 import geopandas as gpd
 from pygeoapi.process.base import BaseProcessor, ProcessorExecuteError
 from processes.PMARProcess import _fetch_offshore_installations, EMODNET_CACHE_DIR
-from processes.OpenDriftProcess import _LOG_DIR
+from processes.logging_utils import setup_logger
 
-logger = logging.getLogger('offshore_installations_process')
-if not logger.handlers:
-    _fh = logging.FileHandler(os.path.join(_LOG_DIR, 'offshore_installations.log'))
-    _fh.setFormatter(logging.Formatter(
-        '[%(asctime)sZ] {%(filename)s:%(lineno)d} %(levelname)s - %(message)s',
-        datefmt='%Y-%m-%dT%H:%M:%S',
-    ))
-    logger.addHandler(_fh)
-    logger.setLevel(logging.DEBUG)
-    logger.propagate = False
+logger = setup_logger('offshore_installations_process', 'offshore_installations', 'offshore_installations.log')
 
 PROCESS_METADATA = {
     'version': '0.1.0',

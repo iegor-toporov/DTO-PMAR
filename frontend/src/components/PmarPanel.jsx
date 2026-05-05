@@ -15,9 +15,13 @@ const USE_SOURCES = [
 ]
 
 const RESOLUTIONS = [
+  { value: 0.001, label: '0.001°' },
+  { value: 0.01,  label: '0.01°' },
   { value: 0.05,  label: '0.05°' },
   { value: 0.1,   label: '0.1°'  },
   { value: 0.2,   label: '0.2°'  },
+  { value: 0.5,   label: '0.5°'  },
+  { value: 1.0,   label: '1.0°'  },
 ]
 
 function defaultStartDate() {
@@ -84,6 +88,17 @@ export default function PmarPanel({
   const canSubmit  = !loading && (
     seedMode === 'draw' ? !!seedShape : !!shapefileB64
   )
+
+  const ncBytesPerStep = pressure === 'oil' ? 160 : pressure === 'plastic' ? 60 : 40
+  const ncEstimateBytes = parseInt(pnum || 0) * parseInt(durationDays || 0) * 24 * ncBytesPerStep
+  function formatNcSize(bytes) {
+    if (bytes >= 1e9) return (bytes / 1e9).toFixed(1) + ' GB'
+    if (bytes >= 1e6) return (bytes / 1e6).toFixed(0) + ' MB'
+    return (bytes / 1e3).toFixed(0) + ' KB'
+  }
+  const ncSizeClass = ncEstimateBytes > 2e9 ? 'pmar-nc-size pmar-nc-size--warn'
+                    : ncEstimateBytes > 5e8 ? 'pmar-nc-size pmar-nc-size--caution'
+                    : 'pmar-nc-size'
 
   return (
     <form onSubmit={handleSubmit} className="pmar-form">
@@ -201,14 +216,14 @@ export default function PmarPanel({
         <div className="form-row">
           <label>{p.labelDuration}</label>
           <input
-            type="number" value={durationDays} min="1" max="30"
+            type="number" value={durationDays} min="1" max="100"
             onChange={e => setDurationDays(e.target.value)}
           />
         </div>
         <div className="form-row">
           <label>{p.labelParticles}</label>
           <input
-            type="number" value={pnum} min="10" max="10000"
+            type="number" value={pnum} min="10" max="100000"
             onChange={e => setPnum(e.target.value)}
           />
         </div>
@@ -230,6 +245,10 @@ export default function PmarPanel({
       <button className="run-btn" type="submit" disabled={!canSubmit}>
         {loading ? p.btnRunning : p.btnRun}
       </button>
+
+      <div className={ncSizeClass}>
+        {p.ncSizeHint.replace('{size}', formatNcSize(ncEstimateBytes))}
+      </div>
 
       {status && (
         <div className={`status ${statusType}`}>{status}</div>

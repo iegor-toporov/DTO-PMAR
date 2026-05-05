@@ -16,16 +16,8 @@ os.makedirs(OUT_DIR,   exist_ok=True)
 os.makedirs(CACHE_DIR, exist_ok=True)
 os.makedirs(_LOG_DIR,  exist_ok=True)
 
-logger = logging.getLogger('opendrift_process')
-if not logger.handlers:
-    _fh = logging.FileHandler(os.path.join(_LOG_DIR, 'opendrift.log'))
-    _fh.setFormatter(logging.Formatter(
-        '[%(asctime)sZ] {%(filename)s:%(lineno)d} %(levelname)s - %(message)s',
-        datefmt='%Y-%m-%dT%H:%M:%S',
-    ))
-    logger.addHandler(_fh)
-    logger.setLevel(logging.DEBUG)
-    logger.propagate = False
+from processes.logging_utils import setup_logger
+logger = setup_logger('opendrift_process', 'opendrift', 'opendrift.log')
 
 # ── Dataset CMEMS per correnti (usati da tutti i modelli) ────────────────────
 CMEMS_CURRENT_DATASETS = [
@@ -341,7 +333,7 @@ def _get_wind_file(lon, lat, start_time, end_time):
 
 
 def _build_bbox(snap_lon, snap_lat, snap_start, n_days):
-    margin   = 5.0 + n_days * 0.02                             # -> TODO da vedere se va bene cosi o è da cambiare
+    margin   = 5.0 + math.log(n_days + 1) * 0.3
     snap_end = snap_start + timedelta(days=n_days)
     return dict(
         minimum_longitude = snap_lon - margin,

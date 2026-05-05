@@ -153,6 +153,28 @@
   border-radius: 0 5px 5px 0;
 }
 
+.pmar-nc-size {
+  font-size: 10.5px;
+  color: #94a3b8;
+  margin-top: 6px;
+  padding: 5px 8px;
+  background: rgba(148, 163, 184, 0.06);
+  border-left: 2px solid rgba(148, 163, 184, 0.3);
+  border-radius: 0 5px 5px 0;
+}
+
+.pmar-nc-size--caution {
+  color: #fcd34d;
+  background: rgba(250, 204, 21, 0.06);
+  border-left-color: rgba(250, 204, 21, 0.4);
+}
+
+.pmar-nc-size--warn {
+  color: #fca5a5;
+  background: rgba(239, 68, 68, 0.06);
+  border-left-color: rgba(239, 68, 68, 0.4);
+}
+
 .pmar-select {
   width: 100%;
   padding: 8px 10px;

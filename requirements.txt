@@ -1,3 +1,61 @@
-asgiref==3.11.1
-Django==5.2.13
-sqlparse==0.5.5
+# Python dependencies for demo_5 backend
+# From venv on 2026-05-05
+#
+# Notes for containerization:
+# - pygeoapi must be installed from source (see venv/pygeoapi/)
+# - pmar must be installed from private repo (for now):
+#     pip install git+https://<token>@github.com/sofbo/pmar.git
+# - copernicusmarine requires a Copernicus Marine account
+#     (credentials via env vars or ~/.copernicusmarine)
+# - cartopy may require system libraries (apt: libgeos-dev libproj-dev)
+# - rasterio may require system libraries (apt: libgdal-dev)
+
+# Core framework
+Flask==3.1.3
+flask-cors==6.0.2
+Werkzeug==3.1.8
+Jinja2==3.1.6
+PyYAML==6.0.3
+
+# Ocean simulation
+opendrift==1.14.9
+copernicusmarine==2.4.0
+# pmar: pip install git+https://<token>@github.com/sofbo/pmar.git
+
+# Geospatial
+geopandas==1.1.3
+rasterio==1.5.0
+rioxarray==0.22.0
+pyproj==3.7.2
+shapely==2.1.2
+Cartopy==0.25.0
+geocube==0.7.1
+
+# Data
+xarray==2026.4.0
+numpy==2.4.4
+pandas==3.0.2
+netCDF4==1.7.4
+scipy==1.17.1
+dask==2026.3.0
+zarr==3.1.6
+h5netcdf==1.8.1
+h5py==3.16.0
+
+# Plotting
+matplotlib==3.10.9
+seaborn==0.13.2
+pillow==12.2.0
+
+# Graph (required by pmar)
+networkx==3.6.1
+
+# Utilities
+requests==2.33.1
+requests-cache==1.3.1
+filelock==3.29.0
+tqdm==4.67.3
+psutil==7.2.2
+python-dateutil==2.9.0.post0
+pytz==2026.1.post1
+click==8.3.3

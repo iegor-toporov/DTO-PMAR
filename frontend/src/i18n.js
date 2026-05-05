@@ -54,6 +54,7 @@ export const translations = {
       useOffshoreEmpty:   'Nessun impianto offshore trovato nell\'area.',
       btnRun:        '▶ Avvia analisi PMAR',
       btnRunning:    '⏳ Analisi in corso…',
+      ncSizeHint:    '📦 Dimensione stimata file temporaneo: {size}',
     },
 
     controls: {
@@ -154,6 +155,7 @@ export const translations = {
       useOffshoreEmpty:   'No offshore installations found in this area.',
       btnRun:        '▶ Run PMAR analysis',
       btnRunning:    '⏳ Analysis running…',
+      ncSizeHint:    '📦 Estimated temp file size: {size}',
     },
 
     controls: {

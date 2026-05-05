@@ -43,8 +43,8 @@ server:
 
 
 logging:
-    level: DEBUG
-    logfile: logs/pygeoapi.log  
+    level: WARNING
+    logfile: logs/pygeoapi/pygeoapi.log
 
 metadata:
     identification:

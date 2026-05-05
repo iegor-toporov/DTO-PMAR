@@ -1,4 +1,5 @@
 import base64
+import math
 import glob
 import importlib
 import io
@@ -24,16 +25,8 @@ from processes.OpenDriftProcess import _get_forcing_file, _get_wind_file, _LOG_D
 EMODNET_CACHE_DIR = os.path.join(CACHE_DIR, 'emodnet')
 os.makedirs(EMODNET_CACHE_DIR, exist_ok=True)
 
-logger = logging.getLogger('pmar_process')
-if not logger.handlers:
-    _fh = logging.FileHandler(os.path.join(_LOG_DIR, 'pmar_process.log'))
-    _fh.setFormatter(logging.Formatter(
-        '[%(asctime)sZ] {%(filename)s:%(lineno)d} %(levelname)s - %(message)s',
-        datefmt='%Y-%m-%dT%H:%M:%S',
-    ))
-    logger.addHandler(_fh)
-    logger.setLevel(logging.DEBUG)
-    logger.propagate = False
+from processes.logging_utils import setup_logger
+logger = setup_logger('pmar_process', 'pmar', 'pmar.log')
 
 PRESSURE_MODELS = {
     'generic': {
@@ -131,6 +124,7 @@ class PMARProcessor(BaseProcessor):
     def execute(self, data):
         import xarray as xr
         from pmar.pmar import PMAR
+        from pmar.utils import make_grid
         # pmar.py (riga 41) setta PROJ_LIB a un path conda hardcoded inesistente su questo sistema,
         # corrompendo PROJ per pyproj e rasterio. Lo rimuoviamo così entrambe le librerie
         # usano i propri data dir di default, che funzionano correttamente.
@@ -141,7 +135,7 @@ class PMARProcessor(BaseProcessor):
         shapefile_b64 = data.get('shapefile_b64')
         pressure      = data.get('pressure', 'generic')
         duration_days = int(data.get('duration_days', 3))
-        pnum          = min(int(data.get('pnum', 200)), 10000)
+        pnum          = min(int(data.get('pnum', 200)), 100000)
         res           = float(data.get('res', 0.1))
         use_source    = data.get('use_source', 'none')
 
@@ -209,13 +203,13 @@ class PMARProcessor(BaseProcessor):
                 p = PMAR(context=None, pressure=pressure, basedir=pmar_basedir, loglevel=50)
                 p.ds = xr.open_dataset(nc_output)
 
-                margin     = max(1.0, duration_days * 0.05)
+                margin     = max(1.0, math.log(duration_days + 1) * 0.5)
                 study_area = [
                     float(bounds[0]) - margin, float(bounds[1]) - margin,
                     float(bounds[2]) + margin, float(bounds[3]) + margin,
                 ]
                 p.study_area = study_area
-                p.grid       = p.xgrid(res=res, study_area=study_area)
+                p.grid       = make_grid(res=res, study_area=study_area)
 
                 # ── Use layer (pesi attività antropiche) ──────────────────────
                 use_raster    = None
@@ -256,14 +250,15 @@ class PMARProcessor(BaseProcessor):
                     else:
                         logger.warning('Nessun impianto offshore trovato nell\'area di studio')
 
+                if use_weighted:
+                    p.set_weights(res=res, study_area=study_area, use=use_raster, normalize=True)
+
                 h = p.get_histogram(
                     res=res,
                     study_area=study_area,
-                    normalize=use_weighted,
-                    assign=False,
+                    weighted=use_weighted,
                     dim=['trajectory', 'time'],
                     block_size=len(p.ds.time),
-                    use=use_raster,
                 )
 
                 img_b64, map_bounds = _raster_to_png(h)
@@ -416,20 +411,20 @@ def _raster_to_png(h):
     except Exception:
         norm = mcolors.Normalize(vmin=vmin, vmax=vmax)
 
-    cmap = plt.get_cmap('YlOrRd').copy()
+    cmap = plt.get_cmap('Spectral_r').copy()
     cmap.set_bad(alpha=0)
 
     masked_arr = np.ma.masked_where(~valid_mask, arr_plot)
     ny, nx = arr_plot.shape
 
-    fig = plt.figure(figsize=(max(nx / 100, 2), max(ny / 100, 2)), dpi=100)
+    fig = plt.figure(figsize=(max(nx / 100, 2), max(ny / 100, 2)), dpi=300)
     ax  = fig.add_axes([0, 0, 1, 1])
     ax.set_axis_off()
     ax.imshow(masked_arr, aspect='auto', cmap=cmap, norm=norm,
-              interpolation='nearest', origin='upper')
+              interpolation='bilinear', origin='upper')
 
     buf = io.BytesIO()
-    fig.savefig(buf, format='png', dpi=100, bbox_inches='tight',
+    fig.savefig(buf, format='png', dpi=300, bbox_inches='tight',
                 pad_inches=0, transparent=True)
     plt.close(fig)
     buf.seek(0)

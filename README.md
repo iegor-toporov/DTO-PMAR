@@ -12,14 +12,20 @@ demo_5/
 │   ├── OpenDriftProcess.py              # OGC API process: runs OpenDrift with CMEMS data
 │   ├── PMARProcess.py                   # OGC API process: runs PMAR with CMEMS data
 │   ├── WindfarmsProcess.py              # OGC API process: EMODnet wind farm preview (bbox query)
-│   └── OffshoreInstallationsProcess.py  # OGC API process: EMODnet offshore installations preview
+│   ├── OffshoreInstallationsProcess.py  # OGC API process: EMODnet offshore installations preview
+│   └── logging_utils.py                 # Shared log handler with line-count rotation
 ├── frontend/
 │   └── src/                             # React + Vite SPA
 ├── cache/
 │   ├── *.nc                             # Downloaded CMEMS NetCDF files (auto-managed)
 │   └── emodnet/                         # EMODnet WFS responses (pickle, 7-day TTL)
-├── out/                                 # Temporary simulation outputs (auto-cleaned)
-├── logs/                                # pygeoapi.log, opendrift.log, windfarms.log, offshore_installations.log
+├── out/                                 # Temporary simulation outputs (cleaned on startup)
+├── logs/
+│   ├── pygeoapi/pygeoapi.log            # pygeoapi server logs (WARNING+)
+│   ├── opendrift/opendrift.log          # OpenDrift simulation logs
+│   ├── pmar/pmar.log                    # PMAR process logs
+│   ├── windfarms/windfarms.log          # Wind farms WFS logs
+│   └── offshore_installations/          # Offshore installations WFS logs
 ├── pygeoapi-config.yml
 └── start.sh
 ```
@@ -35,9 +41,11 @@ demo_5/
 - Python 3.12 with a virtual environment (`venv/`)
 - pygeoapi (installed from source in `venv/pygeoapi/`)
 - OpenDrift and its dependencies
-- PMAR library (`pmar/`)
+- PMAR library — install from private repo: `pip install git+https://<token>@github.com/sofbo/pmar.git`
 - `copernicusmarine` Python client (requires a free Copernicus Marine account)
 - `rasterio` (for GeoTIFF export)
+- `networkx` (`pip install networkx`) — required by the new PMAR library
+- `cartopy` — required by `pmar.utils.make_grid`
 - Node.js ≥ 18 (for frontend development only)
 
 ---
@@ -51,7 +59,7 @@ source venv/bin/activate
 ./start.sh
 ```
 
-`start.sh` regenerates the OpenAPI spec from `pygeoapi-config.yml` and starts the server on port 5001.
+`start.sh` removes leftover temporary NetCDF files from `out/`, regenerates the OpenAPI spec from `pygeoapi-config.yml`, and starts the server on port 5001.
 
 ### Frontend (development)
 
@@ -119,9 +127,9 @@ Runs an OpenDrift simulation over the seeded area, then computes a particle dens
 | `shapefile_b64` | Base64-encoded ZIP of a shapefile (alternative to GeoJSON) | — |
 | `pressure` | Particle type: `generic`, `plastic`, or `oil` | `generic` |
 | `start_time` | ISO 8601 datetime | 10 days ago |
-| `duration_days` | Simulation duration in days | 3 |
-| `pnum` | Number of particles (max 10 000) | 200 |
-| `res` | Grid resolution in degrees | 0.1 |
+| `duration_days` | Simulation duration in days (max 100) | 3 |
+| `pnum` | Number of particles (max 100 000) | 200 |
+| `res` | Grid resolution in degrees (`0.001` to `1.0`) | 0.1 |
 | `use_source` | Anthropogenic weighting layer: `none`, `windfarms`, or `offshore_installations` | `none` |
 
 ### Output
@@ -129,7 +137,7 @@ Runs an OpenDrift simulation over the seeded area, then computes a particle dens
 ```json
 {
   "type": "raster",
-  "image_b64": "...",        // transparent PNG for Leaflet overlay
+  "image_b64": "...",        // transparent PNG for Leaflet overlay (300 dpi, bilinear interpolation)
   "geotiff_b64": "...",      // georeferenced GeoTIFF (EPSG:4326, LZW) for download
   "bounds": [[lat_min, lon_min], [lat_max, lon_max]],
   "pressure": "generic|plastic|oil",
@@ -153,8 +161,36 @@ Single float32 band, `ny × nx` cells. Cell value = raw particle passage counts 
 
 Computed in `_raster_to_png` (PMARProcess.py):
 - Transparent: cells with value ≤ 0 or NaN
-- Colormap `YlOrRd` with `LogNorm`
+- Colormap `Spectral_r` (blue/purple → green → yellow → orange → red) with `LogNorm`
 - vmin = 2nd percentile of positive values, vmax = 98th percentile (auto-adaptive per run)
+- PNG rendered at 300 dpi with bilinear interpolation
+
+### Download filename format
+
+```
+pmar_<pressure>_<YYYYMMDD>-<YYYYMMDD>_p<pnum>[_<use_source>].tif
+```
+e.g. `pmar_oil_20260501-20260510_p30000_offshore_installations.tif`
+
+### Temporary file size
+
+The OpenDrift simulation writes a temporary NetCDF to `out/` before PMAR analysis. Estimated sizes:
+
+| Pressure | Bytes/particle/step | Example: 30k × 70 days |
+|---|---|---|
+| `generic` | ~40 (5 vars × float64) | ~1.6 GB |
+| `plastic` | ~60 (8 vars × float64) | ~2.4 GB |
+| `oil` | ~160 (20 vars × float64) | ~8 GB |
+
+The frontend shows a live estimate below the run button. Temporary files are deleted after each run and cleaned up on server startup.
+
+### Spatial margin
+
+The CMEMS download bbox and PMAR study area extend beyond the seeding polygon using logarithmic growth: `margin = log(days + 1) × k`. This limits the download area for long simulations while still covering plausible particle drift.
+
+### PROJ note
+
+`pmar.py` hardcodes `PROJ_LIB` to a conda path at import time, which corrupts PROJ for pyproj and rasterio. PMARProcess.py removes both `PROJ_LIB` and `PROJ_DATA` from the environment immediately after importing PMAR, allowing each library to find its own data directory.
 
 ---
 
@@ -165,7 +201,7 @@ Both layers query [EMODnet Human Activities WFS](https://ows.emodnet-humanactivi
 | `use_source` | Data source | Coverage note |
 |---|---|---|
 | `windfarms` | `emodnet:windfarmspoly` (polygons) | North Sea, Atlantic, Baltic |
-| `offshore_installations` | `emodnet:platforms` (points) | European waters; Mediterranean data concentrated in the Adriatic |
+| `offshore_installations` | `emodnet:platforms` (points) | European waters; Mediterranean data concentrated in the Adriatic (Italian/Croatian platforms) |
 
 When a layer is active, its features are rasterized onto the simulation grid and used as PMAR weights. Features are also returned in the response as GeoJSON for display on the map.
 
@@ -192,7 +228,7 @@ Wind data (for `PlastDrift`, `OpenOil`, and PMAR plastic/oil pressure):
 - **Primary:** `cmems_obs-wind_med_phy_nrt_l4_0.125deg_PT1H` (Mediterranean)
 - **Fallback:** `cmems_obs-wind_glo_phy_nrt_l4_0.125deg_PT1H` (global)
 
-Files are cached in `cache/` keyed on seeding coordinates, start date, and duration. The spatial domain is centred on the seeding point with a margin proportional to the simulation duration.
+Files are cached in `cache/` keyed on seeding coordinates, start date, and duration. The spatial domain is centred on the seeding point with a logarithmic margin based on simulation duration.
 
 ---
 
@@ -208,7 +244,8 @@ Files are cached in `cache/` keyed on seeding coordinates, start date, and durat
 ### PMAR tab
 
 - Draw a seeding polygon on the map (or upload a shapefile)
-- Select pressure type, simulation duration, particle count, and grid resolution
+- Select pressure type (`generic`, `plastic`, `oil`), duration (up to 100 days), particle count (up to 100 000), and grid resolution (`0.001°` to `1.0°`)
+- Live estimate of temporary NetCDF file size, colour-coded by severity, updates as parameters change
 - Select an anthropogenic weighting layer (`windfarms` or `offshore_installations`)
 - Anthropogenic layer features are previewed on the map as soon as a source is selected, before running the simulation
 - After the simulation completes, a **PmarControls** bar appears at the bottom with:
@@ -216,9 +253,7 @@ Files are cached in `cache/` keyed on seeding coordinates, start date, and durat
   - Toggle seeding area overlay
   - Toggle wind farms layer (if windfarms was used)
   - Toggle offshore installations layer (if offshore_installations was used)
-  - **Download raster** — downloads the raw GeoTIFF with a descriptive filename:
-    `pmar_<pressure>_<start>-<end>_p<pnum>[_<use_source>].tif`
-    e.g. `pmar_plastic_20260501-20260504_p500_windfarms.tif`
+  - **Download raster** — downloads the raw GeoTIFF with a descriptive filename
 
 ### Map markers for anthropogenic layers
 
@@ -239,9 +274,12 @@ Point features use `pointToLayer`; polygon features display a pin at the centroi
 
 ## Logging
 
-| File | Content |
+Each process writes to its own subdirectory under `logs/`. All process loggers use `LineRotatingFileHandler` (`processes/logging_utils.py`): the log file is truncated (not archived) when it exceeds 1000 lines.
+
+| Directory | Content |
 |---|---|
-| `logs/pygeoapi.log` | Server-level logs (DEBUG) |
-| `logs/opendrift.log` | OpenDrift simulation logs |
-| `logs/windfarms.log` | Wind farms WFS fetch logs |
-| `logs/offshore_installations.log` | Offshore installations WFS fetch logs |
+| `logs/pygeoapi/pygeoapi.log` | pygeoapi server logs (WARNING level — configured in `pygeoapi-config.yml`) |
+| `logs/opendrift/opendrift.log` | OpenDrift simulation logs (DEBUG) |
+| `logs/pmar/pmar.log` | PMAR process logs (DEBUG) |
+| `logs/windfarms/windfarms.log` | Wind farms WFS fetch logs (DEBUG) |
+| `logs/offshore_installations/offshore_installations.log` | Offshore installations WFS fetch logs (DEBUG) |
