@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { useLang } from '../LanguageContext'
 import './PmarPanel.css'
 
@@ -15,8 +15,9 @@ const USE_SOURCES = [
 ]
 
 const SCENARIOS = [
-  { id: 'adriatico_generic', pressure: 'generic', pnum: 100000, duration: 365, timeStep: 24, start: '2024-04-27', res: 0.05, area_it: 'Mar Adriatico', area_en: 'Adriatic Sea' },
-  { id: 'adriatico_plastic', pressure: 'plastic', pnum: 100000, duration: 365, timeStep: 24, start: '2024-04-27', res: 0.05, area_it: 'Mar Adriatico', area_en: 'Adriatic Sea' },
+  { id: 'adriatico_generic',  pressure: 'generic', pnum: 100000, duration: 365, timeStep: 24, start: '2024-01-01', res: 0.05, area_it: 'Mar Adriatico', area_en: 'Adriatic Sea' },
+  { id: 'adriatico_plastic',  pressure: 'plastic', pnum: 100000, duration: 365, timeStep: 24, start: '2024-01-01', res: 0.05, area_it: 'Mar Adriatico', area_en: 'Adriatic Sea' },
+  { id: 'adriatico_oil_2024', pressure: 'oil',     pnum: 100000, duration: 365, timeStep: 24, start: '2024-01-01', res: 0.05, area_it: 'Mar Adriatico', area_en: 'Adriatic Sea' },
 ]
 
 const RESOLUTIONS = [
@@ -74,6 +75,66 @@ export default function PmarPanel({
   const [shapefileB64,  setShapefileB64]  = useState(null)
   const [shapefileName, setShapefileName] = useState('')
   const fileRef = useRef(null)
+
+  const [scenarioStatuses, setScenarioStatuses] = useState({}) // id → 'ready'|'computing'|'not_computed'|'error'
+  const [computingJobs, setComputingJobs]       = useState({}) // id → jobId
+
+  // Fetch statuses quando si entra in scenario mode
+  useEffect(() => {
+    if (runMode !== 'scenario') return
+    fetch('/processes/scenario_status/execution', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ inputs: {} }),
+    })
+      .then(r => r.json())
+      .then(raw => {
+        const data = raw.result ?? raw
+        const s = {}
+        for (const [id, info] of Object.entries(data)) {
+          s[id] = info.computed ? 'ready' : 'not_computed'
+        }
+        setScenarioStatuses(s)
+      })
+      .catch(() => {})
+  }, [runMode])
+
+  // Polling dei job in corso
+  useEffect(() => {
+    const running = Object.entries(computingJobs)
+    if (running.length === 0) return
+    const iv = setInterval(async () => {
+      for (const [sid, jobId] of running) {
+        try {
+          const r = await fetch(`/jobs/${jobId}`)
+          const job = await r.json()
+          if (job.status === 'successful') {
+            setComputingJobs(p => { const n = {...p}; delete n[sid]; return n })
+            setScenarioStatuses(p => ({...p, [sid]: 'ready'}))
+          } else if (job.status === 'failed') {
+            setComputingJobs(p => { const n = {...p}; delete n[sid]; return n })
+            setScenarioStatuses(p => ({...p, [sid]: 'error'}))
+          }
+        } catch {}
+      }
+    }, 5000)
+    return () => clearInterval(iv)
+  }, [computingJobs])
+
+  async function handleComputeScenario(sid) {
+    setScenarioStatuses(p => ({...p, [sid]: 'computing'}))
+    try {
+      const r = await fetch('/processes/precompute/execution', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Prefer': 'respond-async' },
+        body: JSON.stringify({ inputs: { scenario_id: sid } }),
+      })
+      const data = await r.json()
+      setComputingJobs(p => ({...p, [sid]: data.jobID}))
+    } catch {
+      setScenarioStatuses(p => ({...p, [sid]: 'error'}))
+    }
+  }
 
   function handleFileChange(e) {
     const file = e.target.files[0]
@@ -140,57 +201,67 @@ export default function PmarPanel({
       </div>
 
       {/* ── Scenario mode ─────────────────────────────────────────────── */}
-      {runMode === 'scenario' && (() => {
-        const sc = SCENARIOS.find(s => s.id === scenarioId) ?? null
-        return (
-          <>
-            <div className="section-label" style={{ marginTop: 10 }}>{p.sectionScenario}</div>
-            <select
-              className="pmar-select"
-              style={{ width: '100%', marginTop: 6 }}
-              value={scenarioId}
-              onChange={e => setScenarioId(e.target.value)}
-            >
-              <option value="">{p.scenarioHint}</option>
-              {SCENARIOS.map(s => (
-                <option key={s.id} value={s.id}>{p.scenarios[s.id]}</option>
-              ))}
-            </select>
-            {sc && (
+      {runMode === 'scenario' && (
+        <>
+          <div className="section-label" style={{ marginTop: 10 }}>{p.sectionScenario}</div>
+          <div className="pmar-scenario-list">
+            {SCENARIOS.map(s => {
+              const status = scenarioStatuses[s.id] ?? 'unknown'
+              const isSelected = scenarioId === s.id
+              const isReady = status === 'ready'
+              const isComputing = status === 'computing'
+              const isAnyComputing = Object.keys(computingJobs).length > 0
+              const otherComputing = isAnyComputing && !isComputing
+              return (
+                <div
+                  key={s.id}
+                  className={`pmar-scenario-item${isSelected && isReady ? ' selected' : ''}${!isReady ? ' disabled' : ''}`}
+                  onClick={() => isReady && setScenarioId(s.id)}
+                >
+                  <div className="pmar-scenario-item-header">
+                    <span className="pmar-scenario-item-label">{p.scenarios[s.id]}</span>
+                    <span className="pmar-scenario-item-status">
+                      {status === 'ready'        && '✅'}
+                      {status === 'computing'    && '⏳'}
+                      {status === 'not_computed' && '⬜'}
+                      {status === 'error'        && '❌'}
+                      {status === 'unknown'      && '…'}
+                    </span>
+                  </div>
+                  {status === 'not_computed' && !otherComputing && (
+                    <button
+                      type="button"
+                      className="pmar-compute-btn"
+                      onClick={e => { e.stopPropagation(); handleComputeScenario(s.id) }}
+                    >{p.computeBtn}</button>
+                  )}
+                  {isComputing && <div className="pmar-computing-hint">{p.computingHint}</div>}
+                  {otherComputing && status === 'not_computed' && (
+                    <div className="pmar-computing-hint">{p.computeBusy}</div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+
+          {/* Info box scenario selezionato */}
+          {(() => {
+            const sc = SCENARIOS.find(s => s.id === scenarioId) ?? null
+            if (!sc || scenarioStatuses[sc.id] !== 'ready') return null
+            return (
               <div className="pmar-scenario-info">
-                <div className="pmar-scenario-info-row">
-                  <span>{p.sectionSeed}</span>
-                  <span>{lang === 'it' ? sc.area_it : sc.area_en}</span>
-                </div>
-                <div className="pmar-scenario-info-row">
-                  <span>{p.sectionPressure}</span>
-                  <span>{p.pressures[sc.pressure]}</span>
-                </div>
-                <div className="pmar-scenario-info-row">
-                  <span>{p.labelStart}</span>
-                  <span>{sc.start}</span>
-                </div>
-                <div className="pmar-scenario-info-row">
-                  <span>{p.labelDuration}</span>
-                  <span>{sc.duration} d</span>
-                </div>
-                <div className="pmar-scenario-info-row">
-                  <span>{p.labelParticles}</span>
-                  <span>{sc.pnum.toLocaleString()}</span>
-                </div>
-                <div className="pmar-scenario-info-row">
-                  <span>{p.labelTimeStep}</span>
-                  <span>{sc.timeStep} h</span>
-                </div>
-                <div className="pmar-scenario-info-row">
-                  <span>{p.labelRes}</span>
-                  <span>{sc.res}°</span>
-                </div>
+                <div className="pmar-scenario-info-row"><span>{p.sectionSeed}</span><span>{lang === 'it' ? sc.area_it : sc.area_en}</span></div>
+                <div className="pmar-scenario-info-row"><span>{p.sectionPressure}</span><span>{p.pressures[sc.pressure]}</span></div>
+                <div className="pmar-scenario-info-row"><span>{p.labelStart}</span><span>{sc.start}</span></div>
+                <div className="pmar-scenario-info-row"><span>{p.labelDuration}</span><span>{sc.duration} d</span></div>
+                <div className="pmar-scenario-info-row"><span>{p.labelParticles}</span><span>{sc.pnum.toLocaleString()}</span></div>
+                <div className="pmar-scenario-info-row"><span>{p.labelTimeStep}</span><span>{sc.timeStep} h</span></div>
+                <div className="pmar-scenario-info-row"><span>{p.labelRes}</span><span>{sc.res}°</span></div>
               </div>
-            )}
-          </>
-        )
-      })()}
+            )
+          })()}
+        </>
+      )}
 
       {/* ── Seeding mode toggle (solo custom) ────────────────────────── */}
       {runMode === 'custom' && <>

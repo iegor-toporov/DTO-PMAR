@@ -105,3 +105,13 @@ resources:
       type: process
       processor:
             name: processes.OffshoreInstallationsProcess.OffshoreInstallationsProcessor
+
+    precompute:
+      type: process
+      processor:
+            name: processes.PrecomputeProcess.PrecomputeProcessor
+
+    scenario_status:
+      type: process
+      processor:
+            name: processes.ScenarioStatusProcess.ScenarioStatusProcessor

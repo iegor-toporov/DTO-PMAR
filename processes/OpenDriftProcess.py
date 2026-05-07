@@ -26,6 +26,7 @@ CMEMS_CURRENT_DATASETS_HOURLY = [
 ]
 CMEMS_CURRENT_DATASETS_DAILY = [
     {'dataset_id': 'cmems_mod_glo_phy-cur_anfc_0.083deg_P1D-m',  'variables': ['uo', 'vo']},
+    {'dataset_id': 'cmems_mod_glo_phy_my_0.083deg_P1D-m',         'variables': ['uo', 'vo']},
 ]
 
 # ── Modelli disponibili con metadati UI ──────────────────────────────────────
@@ -390,6 +391,8 @@ def _download_wind(snap_lon, snap_lat, snap_start, n_days, cache_path):
         {'dataset_id': 'cmems_obs-wind_med_phy_nrt_l4_0.125deg_PT1H',
          'variables': ['eastward_wind', 'northward_wind']},
         {'dataset_id': 'cmems_obs-wind_glo_phy_nrt_l4_0.125deg_PT1H',
+         'variables': ['eastward_wind', 'northward_wind']},
+        {'dataset_id': 'cmems_obs-wind_glo_phy_my_l4_0.125deg_PT1H',
          'variables': ['eastward_wind', 'northward_wind']},
     ]
     for ds in WIND_DATASETS:

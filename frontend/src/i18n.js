@@ -61,9 +61,13 @@ export const translations = {
       sectionScenario:'Scenario predefinito',
       scenarioHint:   'Seleziona uno scenario pre-calcolato',
       scenarioNotReady:'Scenario non ancora pre-calcolato. Esegui precompute_scenarios.py.',
+      computeBtn:    'Calcola',
+      computingHint: '⏳ In calcolo… (5–15 min)',
+      computeBusy:   '⏳ Un altro scenario è in calcolo. Attendi il termine.',
       scenarios: {
         'adriatico_generic': 'Adriatico – Tracciante 2024',
         'adriatico_plastic': 'Adriatico – Plastica 2024',
+        'adriatico_oil_2024': 'Adriatico – Petrolio 2024',
       },
     },
 
@@ -174,9 +178,13 @@ export const translations = {
       sectionScenario:'Pre-computed scenario',
       scenarioHint:   'Select a pre-computed scenario',
       scenarioNotReady:'Scenario not yet pre-computed. Run precompute_scenarios.py.',
+      computeBtn:    'Compute',
+      computingHint: '⏳ Computing… (5–15 min)',
+      computeBusy:   '⏳ Another scenario is being computed. Please wait.',
       scenarios: {
         'adriatico_generic': 'Adriatic Sea – Tracer 2024',
         'adriatico_plastic': 'Adriatic Sea – Plastic 2024',
+        'adriatico_oil_2024': 'Adriatic Sea – Oil 2024',
       },
     },
 

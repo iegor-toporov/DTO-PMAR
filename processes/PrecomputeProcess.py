@@ -1,52 +1,54 @@
-"""
-Pre-calcola le traiettorie per gli scenari fissi definiti in SCENARIOS.
-Esegui una volta (o quando aggiungi nuovi scenari):
-
-    cd /path/to/demo_5
-    python processes/precompute_scenarios.py [scenario_id]
-
-Se scenario_id è omesso, pre-calcola tutti gli scenari mancanti.
-"""
 import os
-import sys
 import uuid
+import time as _time
+import threading
 from datetime import datetime, timedelta
 
 import geopandas as gpd
 from shapely.geometry import Polygon
 
-_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-sys.path.insert(0, _ROOT)
+from pygeoapi.process.base import BaseProcessor, ProcessorExecuteError
 
 from processes.PMARProcess import SCENARIOS, SCENARIOS_DIR, SCENARIOS_SHP_DIR, PRESSURE_MODELS
 from processes.OpenDriftProcess import _get_forcing_file, _get_wind_file, _build_model, OUT_DIR
 from processes.logging_utils import setup_logger
 
-logger = setup_logger('precompute', 'pmar', 'precompute.log')
+logger = setup_logger('precompute_process', 'pmar', 'precompute_process.log')
 
-# ── Shapefile predefiniti ─────────────────────────────────────────────────────
+_precompute_lock = threading.Semaphore(1)
 
-ADRIATICO_COORDS = [
-    (12.4, 37.9),
-    (18.5, 39.7),
-    (19.5, 41.0),
-    (18.8, 42.2),
-    (17.0, 43.5),
-    (17.8, 44.5),
-    (18.5, 45.2),
-    (14.3, 45.8),
-    (13.5, 45.7),
-    (13.1, 45.6),
-    (12.4, 45.1),
-    (12.2, 44.5),
-    (12.0, 43.5),
-    (12.2, 42.0),
-    (12.0, 40.5),
-    (12.4, 37.9),
-]
+PROCESS_METADATA = {
+    'version': '0.1.0',
+    'id': 'precompute',
+    'title': {'en': 'Pre-compute PMAR scenario'},
+    'description': {
+        'en': 'Pre-computes trajectories for a fixed PMAR scenario and saves the NC file.'
+    },
+    'jobControlOptions': ['async-execute'],
+    'keywords': ['pmar', 'precompute', 'scenario', 'trajectories'],
+    'inputs': {
+        'scenario_id': {
+            'title': 'Scenario ID',
+            'description': 'ID of the scenario to pre-compute (must be one of the keys in SCENARIOS).',
+            'schema': {'type': 'string'},
+            'minOccurs': 1, 'maxOccurs': 1,
+        },
+    },
+    'outputs': {
+        'result': {
+            'title': 'Pre-compute result',
+            'schema': {'type': 'object', 'contentMediaType': 'application/json'},
+        }
+    },
+}
 
 SHAPEFILE_POLYGONS = {
-    'adriatico.shp': ADRIATICO_COORDS,
+    'adriatico.shp': [
+        (12.4, 37.9), (18.5, 39.7), (19.5, 41.0), (18.8, 42.2),
+        (17.0, 43.5), (17.8, 44.5), (18.5, 45.2), (14.3, 45.8),
+        (13.5, 45.7), (13.1, 45.6), (12.4, 45.1), (12.2, 44.5),
+        (12.0, 43.5), (12.2, 42.0), (12.0, 40.5), (12.4, 37.9),
+    ],
 }
 
 
@@ -55,10 +57,7 @@ def _ensure_shapefiles():
         shp_path = os.path.join(SCENARIOS_SHP_DIR, filename)
         if not os.path.exists(shp_path):
             logger.info(f'Creo shapefile: {filename}')
-            gdf = gpd.GeoDataFrame(
-                geometry=[Polygon(coords)],
-                crs='EPSG:4326',
-            )
+            gdf = gpd.GeoDataFrame(geometry=[Polygon(coords)], crs='EPSG:4326')
             gdf.to_file(shp_path)
             logger.info(f'Shapefile creato: {shp_path}')
         else:
@@ -115,7 +114,6 @@ def _run_scenario(scenario_id):
             f'[{scenario_id}] Run: model={pm_cfg["class"]}, pnum={pnum}, '
             f'duration={duration_days}d, time_step={time_step_hours}h'
         )
-        import time as _time
         t0 = _time.monotonic()
         o.run(
             duration=timedelta(days=duration_days),
@@ -136,22 +134,45 @@ def _run_scenario(scenario_id):
         raise
 
 
-def main():
-    _ensure_shapefiles()
+class PrecomputeProcessor(BaseProcessor):
 
-    ids_to_run = sys.argv[1:] if len(sys.argv) > 1 else list(SCENARIOS.keys())
+    def __init__(self, processor_def):
+        super().__init__(processor_def, PROCESS_METADATA)
 
-    for sid in ids_to_run:
-        if sid not in SCENARIOS:
-            print(f'Scenario sconosciuto: {sid!r}. Disponibili: {list(SCENARIOS.keys())}')
-            continue
+    def execute(self, data):
+        scenario_id = data.get('scenario_id')
+        if not scenario_id:
+            raise ProcessorExecuteError('scenario_id è obbligatorio.')
+        if scenario_id not in SCENARIOS:
+            raise ProcessorExecuteError(
+                f'Scenario sconosciuto: {scenario_id!r}. '
+                f'Disponibili: {list(SCENARIOS.keys())}'
+            )
+
+        logger.info(f'[PrecomputeProcess] Avvio pre-calcolo scenario: {scenario_id}')
+
+        if not _precompute_lock.acquire(blocking=False):
+            raise ProcessorExecuteError('Un pre-calcolo è già in corso. Riprova al termine.')
+
         try:
-            _run_scenario(sid)
+            _ensure_shapefiles()
+            _run_scenario(scenario_id)
         except Exception as e:
-            print(f'ERRORE [{sid}]: {e}')
+            logger.error(f'[PrecomputeProcess] Errore nel pre-calcolo di {scenario_id}: {e}', exc_info=True)
+            raise ProcessorExecuteError(str(e))
+        finally:
+            _precompute_lock.release()
 
-    print('Fatto.')
+        sc = SCENARIOS[scenario_id]
+        nc_path = os.path.join(SCENARIOS_DIR, sc['nc_filename'])
 
+        logger.info(f'[PrecomputeProcess] Pre-calcolo completato: {sc["nc_filename"]}')
 
-if __name__ == '__main__':
-    main()
+        return 'application/json', {
+            'scenario_id': scenario_id,
+            'status': 'done',
+            'nc_filename': sc['nc_filename'],
+        }
+
+    def __repr__(self):
+        return '<PrecomputeProcessor>'

@@ -7,6 +7,7 @@ export default defineConfig({
     port: 3000,
     proxy: {
       '/processes': 'http://localhost:5001',
+      '/jobs':      'http://localhost:5001',
     },
   },
 })

@@ -220,3 +220,71 @@
   color: #e2e8f0;
   font-weight: 500;
 }
+
+.pmar-scenario-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.pmar-scenario-item {
+  border: 1px solid rgba(148,163,184,0.2);
+  border-radius: 7px;
+  padding: 8px 10px;
+  background: rgba(255,255,255,0.04);
+  cursor: pointer;
+  transition: border-color 0.2s, background 0.2s;
+}
+
+.pmar-scenario-item:hover:not(.disabled) {
+  border-color: #8b5cf6;
+  background: rgba(139,92,246,0.1);
+}
+
+.pmar-scenario-item.selected {
+  border-color: #8b5cf6;
+  background: rgba(139,92,246,0.15);
+}
+
+.pmar-scenario-item.disabled {
+  cursor: default;
+  opacity: 0.7;
+}
+
+.pmar-scenario-item-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.pmar-scenario-item-label {
+  font-size: 13px;
+  color: #e2e8f0;
+}
+
+.pmar-scenario-item-status {
+  font-size: 14px;
+}
+
+.pmar-compute-btn {
+  margin-top: 6px;
+  width: 100%;
+  padding: 4px 0;
+  border-radius: 5px;
+  border: 1px solid rgba(139,92,246,0.5);
+  background: rgba(139,92,246,0.2);
+  color: #c4b5fd;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.pmar-compute-btn:hover {
+  background: rgba(139,92,246,0.35);
+}
+
+.pmar-computing-hint {
+  margin-top: 4px;
+  font-size: 11px;
+  color: #94a3b8;
+}

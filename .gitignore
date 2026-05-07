@@ -12,6 +12,7 @@ __pycache__/
 # Dati e output simulazioni
 out/
 cache/
+scenarios/
 
 # Log
 logs/
