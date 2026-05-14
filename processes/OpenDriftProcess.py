@@ -32,32 +32,40 @@ CMEMS_CURRENT_DATASETS_DAILY = [
 # ── Modelli disponibili con metadati UI ──────────────────────────────────────
 AVAILABLE_MODELS = {
     'OceanDrift': {
-        'label':       'Tracciante passivo',
-        'description': 'Particelle passive trasportate solo dalle correnti superficiali.',
-        'module':      'opendrift.models.oceandrift',
-        'class':       'OceanDrift',
-        'needs_wind':  False,
+        'label':          'Tracciante passivo',
+        'description':    'Particelle passive trasportate solo dalle correnti superficiali.',
+        'module':         'opendrift.models.oceandrift',
+        'class':          'OceanDrift',
+        'needs_wind':     False,
+        'needs_vertical': False,
+        'max_depth':      0.5,
     },
     'PlastDrift': {
-        'label':       'Plastica',
-        'description': 'Detriti plastici con galleggiabilità, deriva di Stokes e wind drag.',
-        'module':      'opendrift.models.plastdrift',
-        'class':       'PlastDrift',
-        'needs_wind':  True,
+        'label':          'Plastica',
+        'description':    'Detriti plastici con galleggiabilità, deriva di Stokes e wind drag.',
+        'module':         'opendrift.models.plastdrift',
+        'class':          'PlastDrift',
+        'needs_wind':     True,
+        'needs_vertical': False,
+        'max_depth':      0.5,
     },
     'LarvalFish': {
-        'label':       'Larve/uova di pesce',
-        'description': 'Larve e uova di pesce con galleggiabilità verticale e mixing turbolento.',
-        'module':      'opendrift.models.larvalfish',
-        'class':       'LarvalFish',
-        'needs_wind':  False,
+        'label':          'Larve/uova di pesce',
+        'description':    'Larve e uova di pesce con galleggiabilità verticale e mixing turbolento.',
+        'module':         'opendrift.models.larvalfish',
+        'class':          'LarvalFish',
+        'needs_wind':     False,
+        'needs_vertical': True,
+        'max_depth':      200.0,
     },
     'OpenOil': {
-        'label':       'Idrocarburi (petrolio)',
-        'description': 'Sversamento di idrocarburi con evaporazione, emulsione e dispersione.',
-        'module':      'opendrift.models.openoil',
-        'class':       'OpenOil',
-        'needs_wind':  True,
+        'label':          'Idrocarburi (petrolio)',
+        'description':    'Sversamento di idrocarburi con evaporazione, emulsione e dispersione.',
+        'module':         'opendrift.models.openoil',
+        'class':          'OpenOil',
+        'needs_wind':     True,
+        'needs_vertical': True,
+        'max_depth':      50.0,
     },
 }
 
@@ -207,7 +215,8 @@ class OpenDriftProcessor(BaseProcessor):
                 f'start={start_time.isoformat()}, duration={duration_hours}h, particles={number}'
             )
 
-        forcing_paths = [_get_forcing_file(center_lon, center_lat, start_time, end_time)]
+        max_depth     = model_meta.get('max_depth', 0.5)
+        forcing_paths = [_get_forcing_file(center_lon, center_lat, start_time, end_time, max_depth=max_depth)]
         if model_meta['needs_wind']:
             wind_path = _get_wind_file(center_lon, center_lat, start_time, end_time)
             if wind_path:
@@ -271,6 +280,8 @@ def _build_model(model_name, model_meta):
             o.set_config('processes:evaporation', True)
             o.set_config('processes:emulsification', True)
             o.set_config('processes:dispersion', False)
+            if not model_meta.get('needs_vertical', False):
+                o.set_config('drift:vertical_mixing', False)
         except Exception:
             pass
 
@@ -292,15 +303,19 @@ def _build_model(model_name, model_meta):
 
 # ── Cache helpers — correnti ─────────────────────────────────────────────────
 
-def _cache_key(lon, lat, start_time, end_time, suffix='cur'):
+def _cache_key(lon, lat, start_time, end_time, suffix='cur', max_depth=0.5):
     snap_lon   = round(lon)
     snap_lat   = round(lat)
     snap_start = start_time.replace(hour=0, minute=0, second=0, microsecond=0)
     n_days     = math.ceil((end_time - snap_start).total_seconds() / 86400) + 1
 
-    raw    = f'{snap_lon}|{snap_lat}|{snap_start.strftime("%Y%m%d")}|{n_days}|{suffix}'
+    # Aggiunge tag di profondità solo per download 3D (max_depth > 1 m),
+    # così i file 2D esistenti restano validi senza ri-download.
+    depth_tag   = f'|{max_depth:.0f}m' if max_depth > 1.0 else ''
+    depth_label = f'_{int(max_depth)}m' if max_depth > 1.0 else ''
+    raw    = f'{snap_lon}|{snap_lat}|{snap_start.strftime("%Y%m%d")}|{n_days}|{suffix}{depth_tag}'
     digest = hashlib.md5(raw.encode()).hexdigest()[:8]
-    label  = f'{snap_lon:+03d}_{snap_lat:+03d}_{snap_start.strftime("%Y%m%d")}_{n_days}d_{suffix}'
+    label  = f'{snap_lon:+03d}_{snap_lat:+03d}_{snap_start.strftime("%Y%m%d")}_{n_days}d_{suffix}{depth_label}'
 
     return (
         os.path.join(CACHE_DIR, f'cmems_{label}_{digest}.nc'),
@@ -308,19 +323,20 @@ def _cache_key(lon, lat, start_time, end_time, suffix='cur'):
     )
 
 
-def _get_forcing_file(lon, lat, start_time, end_time, time_step_hours=1):
+def _get_forcing_file(lon, lat, start_time, end_time, time_step_hours=1, max_depth=0.5):
     suffix = 'cur_d' if time_step_hours >= 24 else 'cur'
     cache_path, snap_lon, snap_lat, snap_start, n_days = _cache_key(
-        lon, lat, start_time, end_time, suffix=suffix
+        lon, lat, start_time, end_time, suffix=suffix, max_depth=max_depth
     )
     if os.path.exists(cache_path):
         logger.debug(f'Cache correnti: HIT — {os.path.basename(cache_path)}')
     else:
         logger.info(
             f'Cache correnti: MISS — avvio download ({n_days} giorni, '
-            f'{"giornaliero" if time_step_hours >= 24 else "orario"})'
+            f'{"giornaliero" if time_step_hours >= 24 else "orario"}, '
+            f'max_depth={max_depth:.0f}m)'
         )
-        _download_currents(snap_lon, snap_lat, snap_start, n_days, cache_path, time_step_hours)
+        _download_currents(snap_lon, snap_lat, snap_start, n_days, cache_path, time_step_hours, max_depth)
     return cache_path
 
 
@@ -340,7 +356,7 @@ def _get_wind_file(lon, lat, start_time, end_time):
         return None
 
 
-def _build_bbox(snap_lon, snap_lat, snap_start, n_days):
+def _build_bbox(snap_lon, snap_lat, snap_start, n_days, max_depth=0.5):
     margin   = 5.0
     snap_end = snap_start + timedelta(days=n_days)
     return dict(
@@ -349,17 +365,17 @@ def _build_bbox(snap_lon, snap_lat, snap_start, n_days):
         minimum_latitude  = snap_lat - margin,
         maximum_latitude  = snap_lat + margin,
         minimum_depth     = 0,
-        maximum_depth     = 0.5,
+        maximum_depth     = max_depth,
         start_datetime    = snap_start.strftime('%Y-%m-%dT%H:%M:%S'),
         end_datetime      = snap_end.strftime('%Y-%m-%dT%H:%M:%S'),
     )
 
-def _download_currents(snap_lon, snap_lat, snap_start, n_days, cache_path, time_step_hours=1):
+def _download_currents(snap_lon, snap_lat, snap_start, n_days, cache_path, time_step_hours=1, max_depth=0.5):
     import copernicusmarine
     datasets = CMEMS_CURRENT_DATASETS_DAILY if time_step_hours >= 24 else CMEMS_CURRENT_DATASETS_HOURLY
     freq_label = 'giornaliero' if time_step_hours >= 24 else 'orario'
-    logger.info(f'Download correnti CMEMS ({freq_label}) — {snap_start.date()} +{n_days}d → {os.path.basename(cache_path)}')
-    bbox     = _build_bbox(snap_lon, snap_lat, snap_start, n_days)
+    logger.info(f'Download correnti CMEMS ({freq_label}, 0–{max_depth:.0f}m) — {snap_start.date()} +{n_days}d → {os.path.basename(cache_path)}')
+    bbox     = _build_bbox(snap_lon, snap_lat, snap_start, n_days, max_depth)
     last_err = None
     for ds in datasets:
         try:

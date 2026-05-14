@@ -91,7 +91,7 @@ def _run_scenario(scenario_id, sc, shp_path):
     logger.info(f'[{scenario_id}] bounds={bounds.tolist()}, center=({lon_c:.2f}, {lat_c:.2f})')
 
     pm_cfg = PRESSURE_MODELS[pressure]
-    forcing_paths = [_get_forcing_file(lon_c, lat_c, start_time, end_time, time_step_hours)]
+    forcing_paths = [_get_forcing_file(lon_c, lat_c, start_time, end_time, time_step_hours, pm_cfg.get('max_depth', 0.5))]
     if pm_cfg['needs_wind']:
         wind_path = _get_wind_file(lon_c, lat_c, start_time, end_time)
         if wind_path:
@@ -116,13 +116,42 @@ def _run_scenario(scenario_id, sc, shp_path):
             f'[{scenario_id}] Run: model={pm_cfg["class"]}, pnum={pnum}, '
             f'duration={duration_days}d, time_step={time_step_hours}h'
         )
+        stop_progress = threading.Event()
+
+        def _log_progress():
+            while not stop_progress.wait(60):
+                try:
+                    sim_time    = getattr(o, 'time', None)
+                    active      = o.num_elements_active()
+                    elapsed_now = (_time.monotonic() - t0) / 60
+                    if sim_time is not None:
+                        sim_day = (sim_time - start_time).total_seconds() / 86400
+                        pct     = sim_day / duration_days * 100
+                        logger.info(
+                            f'[{scenario_id}] giorno {sim_day:.0f}/{duration_days} ({pct:.0f}%) '
+                            f'— {active} particelle attive — {elapsed_now:.1f} min'
+                        )
+                    else:
+                        logger.info(
+                            f'[{scenario_id}] inizializzazione in corso '
+                            f'— {active} particelle attive — {elapsed_now:.1f} min'
+                        )
+                except Exception:
+                    pass
+
         t0 = _time.monotonic()
-        o.run(
-            duration=timedelta(days=duration_days),
-            time_step=ts,
-            time_step_output=ts,
-            outfile=tmp_nc,
-        )
+        _progress_thread = threading.Thread(target=_log_progress, daemon=True)
+        _progress_thread.start()
+        try:
+            o.run(
+                duration=timedelta(days=duration_days),
+                time_step=ts,
+                time_step_output=ts,
+                outfile=tmp_nc,
+            )
+        finally:
+            stop_progress.set()
+            _progress_thread.join()
         elapsed = (_time.monotonic() - t0) / 60
         logger.info(f'[{scenario_id}] Simulazione completata in {elapsed:.1f} minuti')
 

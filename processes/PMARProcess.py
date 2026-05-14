@@ -80,11 +80,16 @@ T4MSP_AREAS_URL = 'https://api.tools4msp.eu/api/v2/domainareas/?format=json'
 T4MSP_AREA_URL  = 'https://api.tools4msp.eu/api/v2/domainareas/{area_id}/?format=json'
 
 T4MSP_DEFAULT_PARAMS = {
-    'pnum':            100000,
     'duration_days':   365,
     'time_step_hours': 24,
     'start_time':      '2024-01-01T00:00:00',
     'res':             0.05,
+}
+
+T4MSP_PNUM = {
+    'generic': 100000,
+    'plastic':  40000,
+    'oil':      20000,
 }
 
 _T4MSP_CACHE: dict = {'areas': None, 'ts': 0.0}
@@ -150,6 +155,7 @@ def get_t4msp_scenarios() -> dict:
             sid = f't4msp_{area_id}_{pressure}'
             result[sid] = {
                 **T4MSP_DEFAULT_PARAMS,
+                'pnum':            T4MSP_PNUM[pressure],
                 'pressure':        pressure,
                 'label_it':        f'{area_label} – {pm["label_it"]} 2024',
                 'label_en':        f'{area_label} – {pm["label_en"]} 2024',
@@ -167,25 +173,31 @@ logger = setup_logger('pmar_process', 'pmar', 'pmar.log')
 
 PRESSURE_MODELS = {
     'generic': {
-        'module':    'opendrift.models.oceandrift',
-        'class':     'OceanDrift',
-        'needs_wind': False,
-        'label_it':  'Tracciante passivo',
-        'label_en':  'Passive tracer',
+        'module':         'opendrift.models.oceandrift',
+        'class':          'OceanDrift',
+        'needs_wind':     False,
+        'needs_vertical': False,
+        'max_depth':      0.5,
+        'label_it':       'Tracciante passivo',
+        'label_en':       'Passive tracer',
     },
     'plastic': {
-        'module':    'opendrift.models.plastdrift',
-        'class':     'PlastDrift',
-        'needs_wind': True,   # wind drag + Stokes drift
-        'label_it':  'Plastica',
-        'label_en':  'Plastic',
+        'module':         'opendrift.models.plastdrift',
+        'class':          'PlastDrift',
+        'needs_wind':     True,
+        'needs_vertical': False,
+        'max_depth':      0.5,
+        'label_it':       'Plastica',
+        'label_en':       'Plastic',
     },
     'oil': {
-        'module':    'opendrift.models.openoil',
-        'class':     'OpenOil',
-        'needs_wind': True,   # evaporazione, emulsione
-        'label_it':  'Idrocarburi',
-        'label_en':  'Hydrocarbons',
+        'module':         'opendrift.models.openoil',
+        'class':          'OpenOil',
+        'needs_wind':     True,
+        'needs_vertical': True,
+        'max_depth':      50.0,
+        'label_it':       'Idrocarburi',
+        'label_en':       'Hydrocarbons',
     },
 }
 
@@ -374,7 +386,7 @@ class PMARProcessor(BaseProcessor):
                 )
 
                 pm_cfg = PRESSURE_MODELS[pressure]
-                forcing_paths = [_get_forcing_file(lon_c, lat_c, start_time, end_time, time_step_hours)]
+                forcing_paths = [_get_forcing_file(lon_c, lat_c, start_time, end_time, time_step_hours, pm_cfg.get('max_depth', 0.5))]
                 if pm_cfg['needs_wind']:
                     wind_path = _get_wind_file(lon_c, lat_c, start_time, end_time)
                     if wind_path:
