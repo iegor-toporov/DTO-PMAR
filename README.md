@@ -135,7 +135,7 @@ The user defines a seeding area and simulation parameters, then triggers a **pre
 
 | Mode | Description |
 |---|---|
-| Draw | Circle or rectangle drawn interactively on the map |
+| Draw | Circle or rectangle drawn interactively on the map. Supports a custom area name. |
 | Shapefile | ZIP archive containing `.shp`, `.shx`, `.dbf` files |
 | Pre-defined area | Geographic area from the [Tools4MSP API](https://api.tools4msp.eu/api/v2/domainareas/) |
 
@@ -143,17 +143,20 @@ The user defines a seeding area and simulation parameters, then triggers a **pre
 
 | Parameter | Range | Default |
 |---|---|---|
+| Title | Free text | Auto-generated from pressure + date |
+| Description | Free text | — |
 | Pressure type | `generic`, `plastic`, `oil` | `generic` |
 | Start date | ISO 8601 date | 10 days ago |
 | Duration | 1–730 days | 30 |
 | Particles | 10–100 000 | 1 000 |
 | Time step | 1, 3, 6, 12, 24 h | 1 h |
+| CMEMS margin | 0–20° | 5° |
 
 A live estimate of the temporary NetCDF file size is shown below the form, colour-coded by severity (normal / caution >500 MB / warning >2 GB).
 
 Once submitted, the precomputation runs asynchronously. The job is polled every 5 seconds and the new scenario appears automatically in the list when ready.
 
-Existing simulations are listed in a dropdown at the top of the tab and carry over to the Analysis tab.
+Existing simulations are listed in a dropdown at the top of the tab. Selecting one shows a summary: area name, pressure type, start date, duration, particles, time step, CMEMS margin, and description.
 
 ### Tab 2 — Analysis
 
@@ -165,6 +168,7 @@ Once a simulation is selected from the Simulation tab, the Analysis tab allows r
 |---|---|---|
 | Source layer | `Uniform`, `Wind farms`, `Offshore installations`, `Custom GeoTIFF` | `Uniform` |
 | Grid resolution | 0.001°, 0.01°, 0.05°, 0.1°, 0.2°, 0.5°, 1.0° | 0.1° |
+| Study area margin | 0–20° | 1° |
 
 Running the analysis produces a particle density heatmap overlaid on the map.
 
@@ -189,7 +193,10 @@ Runs an OpenDrift simulation, saves the trajectory as `scenarios/custom_<id>.nc`
 | `duration_days` | Duration in days |
 | `pnum` | Number of particles (max 100 000) |
 | `time_step_hours` | Time step in hours (1–24) |
-| `label` | Human-readable name for the scenario |
+| `label` | Human-readable title for the scenario |
+| `description` | Free-text notes about the simulation |
+| `area_name` | Name for the seeding area (draw mode only) |
+| `cmems_margin` | Degrees added beyond the seeding area bbox for CMEMS download (default: 5.0) |
 
 Exactly one of `geojson`, `shapefile_b64`, or `t4msp_area_id` must be provided.
 
@@ -217,12 +224,16 @@ Returns the list of all saved custom scenarios and the available Tools4MSP geogr
       "nc_size_mb": 142.5,
       "label_it": "Plastica — 2026-04-01",
       "label_en": "Plastica — 2026-04-01",
+      "area_it": "Mare Adriatico",
+      "area_en": "Adriatic Sea",
+      "description": "Test con area grande",
       "pressure": "plastic",
       "pnum": 5000,
       "duration_days": 30,
       "time_step_hours": 1,
       "start_time": "2026-04-01",
       "res": 0.1,
+      "cmems_margin": 5.0,
       "source": "custom"
     }
   },
@@ -247,6 +258,7 @@ Runs PMAR density analysis on a precomputed scenario trajectory.
 |---|---|---|
 | `scenario_id` | ID of a precomputed scenario (`custom_<id>`) | — |
 | `res` | Grid resolution in degrees | 0.1 |
+| `margin` | Degrees added beyond the seeding bbox to define the study area | 1.0 |
 | `use_source` | Weighting layer: `none`, `windfarms`, `offshore_installations`, `geotiff` | `none` |
 | `geotiff_b64` | Base64-encoded GeoTIFF for custom weighting (when `use_source=geotiff`) | — |
 | `geotiff_url` | URL of a GeoTIFF to download (when `use_source=geotiff`, ignored if `geotiff_b64` given) | — |
@@ -283,6 +295,18 @@ Runs PMAR density analysis on a precomputed scenario trajectory.
 ```
 
 `seeding_geojson` is always included and contains the simplified seeding area polygon displayed on the map. `windfarms_geojson` and `offshore_geojson` are included only when the respective source layer was used.
+
+### Spatial domains
+
+Three nested spatial domains govern the workflow:
+
+| Domain | Definition | Purpose |
+|---|---|---|
+| Seeding area | User-drawn polygon / shapefile / T4MSP area | Where particles are released |
+| CMEMS domain | Seeding bbox ± `cmems_margin` (default 5°) | Ocean current data coverage |
+| Study area | Seeding bbox ± `margin` (default 1°) | PMAR output raster extent |
+
+Setting `cmems_margin` large enough to cover expected particle drift is important: particles that exit the CMEMS domain lose forcing data. Setting `margin` controls how wide the output heatmap is.
 
 ### Heatmap rendering
 
@@ -341,7 +365,7 @@ Wind data (for `PlastDrift`, `OpenOil`, and PMAR plastic/oil pressure):
 - **Primary:** `cmems_obs-wind_med_phy_nrt_l4_0.125deg_PT1H` (Mediterranean)
 - **Fallback:** `cmems_obs-wind_glo_phy_nrt_l4_0.125deg_PT1H` (global)
 
-Files are cached in `cache/` keyed on seeding coordinates, start date, and duration.
+Files are cached in `cache/` keyed on the seeding area bounding box, CMEMS margin, start date, and duration. The download bbox is computed as `seeding_bounds ± cmems_margin`, so the coverage scales correctly with the size of the seeding area.
 
 ---
 
@@ -356,19 +380,20 @@ Files are cached in `cache/` keyed on seeding coordinates, start date, and durat
 
 ### PMAR tab — Simulation
 
-- Define a seeding area by drawing on the map, uploading a shapefile, or selecting a Tools4MSP pre-defined area
-- Set simulation parameters (pressure type, start date, duration, particles, time step)
+- Define a seeding area by drawing on the map (with optional area name), uploading a shapefile, or selecting a Tools4MSP pre-defined area
+- Set simulation metadata: title, description
+- Set simulation parameters: pressure type, start date, duration, particles, time step, CMEMS margin
 - Live NetCDF size estimate, colour-coded by severity
 - Precompute button runs the simulation asynchronously; status is polled automatically
-- Saved simulations listed in a dropdown at the top of the tab
+- Saved simulations listed in a dropdown; selecting one shows a full summary (area, pressure, dates, particles, time step, CMEMS margin, description)
 
 ### PMAR tab — Analysis
 
 - Select a saved simulation from the dropdown in the Simulation tab
-- Choose an anthropogenic weighting layer and grid resolution
+- Choose an anthropogenic weighting layer, grid resolution, and study area margin
 - After analysis, a **controls bar** appears at the bottom with:
   - Toggle heatmap overlay
-  - Toggle seeding area polygon (returned from the backend with each result)
+  - Toggle seeding area polygon
   - Toggle wind farms layer
   - Toggle offshore installations layer
   - Download raster as GeoTIFF
@@ -376,7 +401,7 @@ Files are cached in `cache/` keyed on seeding coordinates, start date, and durat
 ### Map
 
 - **Light / dark theme toggle** (top-right corner): switches between CartoDB Light and Dark basemaps; the panel and controls bar follow the same theme
-- IT / EN language switch
+- **IT / EN language switch** (top-right, below theme toggle)
 
 ---
 

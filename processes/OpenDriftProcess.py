@@ -192,8 +192,6 @@ class OpenDriftProcessor(BaseProcessor):
                 raise ProcessorExecuteError(
                     f'Rectangle seeding requires lon_min, lon_max, lat_min, lat_max: {e}'
                 )
-            center_lon = (lon_min + lon_max) / 2
-            center_lat = (lat_min + lat_max) / 2
             logger.info(
                 f'Avvio simulazione: model={model_name}, seeding=rectangle, '
                 f'bbox=[{lon_min:.3f},{lat_min:.3f} → {lon_max:.3f},{lat_max:.3f}], '
@@ -207,8 +205,9 @@ class OpenDriftProcessor(BaseProcessor):
             lon    = float(lon)
             lat    = float(lat)
             radius = float(data.get('radius', 1000))
-            center_lon = lon
-            center_lat = lat
+            r_deg  = radius / 111320.0
+            lon_min, lon_max = lon - r_deg, lon + r_deg
+            lat_min, lat_max = lat - r_deg, lat + r_deg
             logger.info(
                 f'Avvio simulazione: model={model_name}, seeding=circle, '
                 f'lon={lon}, lat={lat}, radius={radius}m, '
@@ -216,9 +215,9 @@ class OpenDriftProcessor(BaseProcessor):
             )
 
         max_depth     = model_meta.get('max_depth', 0.5)
-        forcing_paths = [_get_forcing_file(center_lon, center_lat, start_time, end_time, max_depth=max_depth)]
+        forcing_paths = [_get_forcing_file(lon_min, lon_max, lat_min, lat_max, start_time, end_time, max_depth=max_depth)]
         if model_meta['needs_wind']:
-            wind_path = _get_wind_file(center_lon, center_lat, start_time, end_time)
+            wind_path = _get_wind_file(lon_min, lon_max, lat_min, lat_max, start_time, end_time)
             if wind_path:
                 forcing_paths.append(wind_path)
 
@@ -303,30 +302,34 @@ def _build_model(model_name, model_meta):
 
 # ── Cache helpers — correnti ─────────────────────────────────────────────────
 
-def _cache_key(lon, lat, start_time, end_time, suffix='cur', max_depth=0.5):
-    snap_lon   = round(lon)
-    snap_lat   = round(lat)
+def _cache_key(lon_min, lon_max, lat_min, lat_max, start_time, end_time, suffix='cur', max_depth=0.5, margin=5.0):
+    # Snap bounds to integer degrees for stable cache keys
+    slon_min = math.floor(lon_min)
+    slon_max = math.ceil(lon_max)
+    slat_min = math.floor(lat_min)
+    slat_max = math.ceil(lat_max)
     snap_start = start_time.replace(hour=0, minute=0, second=0, microsecond=0)
     n_days     = math.ceil((end_time - snap_start).total_seconds() / 86400) + 1
 
-    # Aggiunge tag di profondità solo per download 3D (max_depth > 1 m),
-    # così i file 2D esistenti restano validi senza ri-download.
     depth_tag   = f'|{max_depth:.0f}m' if max_depth > 1.0 else ''
     depth_label = f'_{int(max_depth)}m' if max_depth > 1.0 else ''
-    raw    = f'{snap_lon}|{snap_lat}|{snap_start.strftime("%Y%m%d")}|{n_days}|{suffix}{depth_tag}'
+    raw    = f'{slon_min}|{slon_max}|{slat_min}|{slat_max}|{snap_start.strftime("%Y%m%d")}|{n_days}|{suffix}{depth_tag}|m{margin:.1f}'
     digest = hashlib.md5(raw.encode()).hexdigest()[:8]
-    label  = f'{snap_lon:+03d}_{snap_lat:+03d}_{snap_start.strftime("%Y%m%d")}_{n_days}d_{suffix}{depth_label}'
+    # Human-readable label uses centre
+    clon = round((lon_min + lon_max) / 2)
+    clat = round((lat_min + lat_max) / 2)
+    label  = f'{clon:+03d}_{clat:+03d}_{snap_start.strftime("%Y%m%d")}_{n_days}d_{suffix}{depth_label}_m{margin:.1f}'
 
     return (
         os.path.join(CACHE_DIR, f'cmems_{label}_{digest}.nc'),
-        snap_lon, snap_lat, snap_start, n_days,
+        slon_min, slon_max, slat_min, slat_max, snap_start, n_days,
     )
 
 
-def _get_forcing_file(lon, lat, start_time, end_time, time_step_hours=1, max_depth=0.5):
+def _get_forcing_file(lon_min, lon_max, lat_min, lat_max, start_time, end_time, time_step_hours=1, max_depth=0.5, margin=5.0):
     suffix = 'cur_d' if time_step_hours >= 24 else 'cur'
-    cache_path, snap_lon, snap_lat, snap_start, n_days = _cache_key(
-        lon, lat, start_time, end_time, suffix=suffix, max_depth=max_depth
+    cache_path, slon_min, slon_max, slat_min, slat_max, snap_start, n_days = _cache_key(
+        lon_min, lon_max, lat_min, lat_max, start_time, end_time, suffix=suffix, max_depth=max_depth, margin=margin
     )
     if os.path.exists(cache_path):
         logger.debug(f'Cache correnti: HIT — {os.path.basename(cache_path)}')
@@ -334,48 +337,48 @@ def _get_forcing_file(lon, lat, start_time, end_time, time_step_hours=1, max_dep
         logger.info(
             f'Cache correnti: MISS — avvio download ({n_days} giorni, '
             f'{"giornaliero" if time_step_hours >= 24 else "orario"}, '
-            f'max_depth={max_depth:.0f}m)'
+            f'max_depth={max_depth:.0f}m, margin={margin}°, '
+            f'bbox=[{lon_min:.1f},{lat_min:.1f}→{lon_max:.1f},{lat_max:.1f}])'
         )
-        _download_currents(snap_lon, snap_lat, snap_start, n_days, cache_path, time_step_hours, max_depth)
+        _download_currents(slon_min, slon_max, slat_min, slat_max, snap_start, n_days, cache_path, time_step_hours, max_depth, margin)
     return cache_path
 
 
-def _get_wind_file(lon, lat, start_time, end_time):
-    cache_path, snap_lon, snap_lat, snap_start, n_days = _cache_key(
-        lon, lat, start_time, end_time, suffix='wind'
+def _get_wind_file(lon_min, lon_max, lat_min, lat_max, start_time, end_time, margin=5.0):
+    cache_path, slon_min, slon_max, slat_min, slat_max, snap_start, n_days = _cache_key(
+        lon_min, lon_max, lat_min, lat_max, start_time, end_time, suffix='wind', margin=margin
     )
     if os.path.exists(cache_path):
         logger.debug(f'Cache vento: HIT — {os.path.basename(cache_path)}')
         return cache_path
-    logger.info(f'Cache vento: MISS — avvio download ({n_days} giorni)')
+    logger.info(f'Cache vento: MISS — avvio download ({n_days} giorni, margin={margin}°)')
     try:
-        _download_wind(snap_lon, snap_lat, snap_start, n_days, cache_path)
+        _download_wind(slon_min, slon_max, slat_min, slat_max, snap_start, n_days, cache_path, margin)
         return cache_path
     except Exception as e:
         logger.warning(f'Download vento fallito (non bloccante): {e}')
         return None
 
 
-def _build_bbox(snap_lon, snap_lat, snap_start, n_days, max_depth=0.5):
-    margin   = 5.0
+def _build_bbox(slon_min, slon_max, slat_min, slat_max, snap_start, n_days, max_depth=0.5, margin=5.0):
     snap_end = snap_start + timedelta(days=n_days)
     return dict(
-        minimum_longitude = snap_lon - margin,
-        maximum_longitude = snap_lon + margin,
-        minimum_latitude  = snap_lat - margin,
-        maximum_latitude  = snap_lat + margin,
+        minimum_longitude = slon_min - margin,
+        maximum_longitude = slon_max + margin,
+        minimum_latitude  = slat_min - margin,
+        maximum_latitude  = slat_max + margin,
         minimum_depth     = 0,
         maximum_depth     = max_depth,
         start_datetime    = snap_start.strftime('%Y-%m-%dT%H:%M:%S'),
         end_datetime      = snap_end.strftime('%Y-%m-%dT%H:%M:%S'),
     )
 
-def _download_currents(snap_lon, snap_lat, snap_start, n_days, cache_path, time_step_hours=1, max_depth=0.5):
+def _download_currents(slon_min, slon_max, slat_min, slat_max, snap_start, n_days, cache_path, time_step_hours=1, max_depth=0.5, margin=5.0):
     import copernicusmarine
     datasets = CMEMS_CURRENT_DATASETS_DAILY if time_step_hours >= 24 else CMEMS_CURRENT_DATASETS_HOURLY
     freq_label = 'giornaliero' if time_step_hours >= 24 else 'orario'
-    logger.info(f'Download correnti CMEMS ({freq_label}, 0–{max_depth:.0f}m) — {snap_start.date()} +{n_days}d → {os.path.basename(cache_path)}')
-    bbox     = _build_bbox(snap_lon, snap_lat, snap_start, n_days, max_depth)
+    logger.info(f'Download correnti CMEMS ({freq_label}, 0–{max_depth:.0f}m, margin={margin}°) — {snap_start.date()} +{n_days}d → {os.path.basename(cache_path)}')
+    bbox     = _build_bbox(slon_min, slon_max, slat_min, slat_max, snap_start, n_days, max_depth, margin)
     last_err = None
     for ds in datasets:
         try:
@@ -396,10 +399,10 @@ def _download_currents(snap_lon, snap_lat, snap_start, n_days, cache_path, time_
     raise ProcessorExecuteError(f'CMEMS currents download failed: {last_err}')
 
 
-def _download_wind(snap_lon, snap_lat, snap_start, n_days, cache_path):
+def _download_wind(slon_min, slon_max, slat_min, slat_max, snap_start, n_days, cache_path, margin=5.0):
     import copernicusmarine
-    logger.info(f'Download vento CMEMS — {snap_start.date()} +{n_days}d → {os.path.basename(cache_path)}')
-    bbox = _build_bbox(snap_lon, snap_lat, snap_start, n_days)
+    logger.info(f'Download vento CMEMS (margin={margin}°) — {snap_start.date()} +{n_days}d → {os.path.basename(cache_path)}')
+    bbox = _build_bbox(slon_min, slon_max, slat_min, slat_max, snap_start, n_days, margin=margin)
     bbox.pop('minimum_depth', None)
     bbox.pop('maximum_depth', None)
 

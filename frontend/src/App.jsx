@@ -467,7 +467,7 @@ function seedShapeBounds(shape) {
 
 // ── App ───────────────────────────────────────────────────────────────────────
 export default function App() {
-  const { t, lang } = useLang()
+  const { t, lang, toggle } = useLang()
 
   // active tool
   const [activeTool, setActiveTool] = useState('opendrift')
@@ -674,11 +674,11 @@ export default function App() {
   }
 
   // ── PMAR run ───────────────────────────────────────────────────────────────
-  async function handleRunPmar({ scenario_id, pressure, start_time, duration_days, pnum, res, time_step_hours, shapefile_b64, geotiff_b64, geotiff_url }) {
+  async function handleRunPmar({ scenario_id, pressure, start_time, duration_days, pnum, res, margin, time_step_hours, shapefile_b64, geotiff_b64, geotiff_url }) {
     let inputs
 
     if (scenario_id) {
-      inputs = { scenario_id, use_source: useSource, res,
+      inputs = { scenario_id, use_source: useSource, res, margin,
         ...(useSource === 'geotiff' && geotiff_b64  ? { geotiff_b64 }  : {}),
         ...(useSource === 'geotiff' && geotiff_url  ? { geotiff_url }  : {}),
       }
@@ -801,6 +801,9 @@ export default function App() {
         onClick={() => setMapTheme(prev => prev === 'dark' ? 'light' : 'dark')}
       >
         {mapTheme === 'dark' ? '☀️' : '🌙'}
+      </button>
+      <button className="map-lang-toggle" onClick={toggle} title="Switch language">
+        {lang === 'it' ? 'EN' : 'IT'}
       </button>
 
       <Panel

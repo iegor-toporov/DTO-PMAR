@@ -6,8 +6,8 @@
   background: rgba(15, 23, 42, 0.92);
   border: 1px solid rgba(148, 163, 184, 0.15);
   border-radius: 14px;
-  padding: 20px 18px;
-  width: 290px;
+  padding: 20px 20px;
+  width: 310px;
   backdrop-filter: blur(10px);
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
   max-height: calc(100vh - 32px);
@@ -33,21 +33,6 @@
   background: rgba(139, 92, 246, 0.6);
 }
 
-.panel-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 16px;
-}
-
-.panel h2 {
-  font-size: 15px;
-  font-weight: 700;
-  color: #7dd3fc;
-  letter-spacing: 0.02em;
-  margin-bottom: 0;
-}
-
 .lang-btn {
   font-size: 11px;
   font-weight: 700;
@@ -60,6 +45,8 @@
   letter-spacing: 0.06em;
   transition: all 0.18s;
   flex-shrink: 0;
+  margin-left: auto;
+  align-self: center;
 }
 
 .lang-btn:hover {
@@ -114,6 +101,33 @@
 
 .form-row input:focus {
   border-color: #0ea5e9;
+}
+
+.form-row textarea {
+  width: 100%;
+  padding: 8px 10px;
+  border-radius: 7px;
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  background: rgba(255, 255, 255, 0.06);
+  color: #f1f5f9;
+  font-size: 13px;
+  outline: none;
+  transition: border-color 0.2s;
+  resize: vertical;
+  min-height: 60px;
+  font-family: inherit;
+  line-height: 1.4;
+  box-sizing: border-box;
+}
+
+.form-row textarea:focus {
+  border-color: #0ea5e9;
+}
+
+[data-theme="light"] .form-row textarea {
+  background: rgba(255, 255, 255, 0.8);
+  border-color: rgba(14, 165, 233, 0.25);
+  color: #0f172a;
 }
 
 .form-grid {
@@ -216,33 +230,50 @@
 
 /* ── Tool tabs ────────────────────────────────────────────────────────── */
 .tool-tabs {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 6px;
-  margin-bottom: 16px;
+  display: flex;
+  align-items: stretch;
+  margin: -20px -20px 16px;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.15);
+  padding: 0 4px;
 }
 
 .tool-tab {
-  padding: 8px 10px;
-  border-radius: 8px;
-  border: 1px solid rgba(148, 163, 184, 0.2);
-  background: rgba(255, 255, 255, 0.04);
-  color: #94a3b8;
-  font-size: 12px;
+  padding: 14px 16px;
+  border: none;
+  border-bottom: 2px solid transparent;
+  background: none;
+  color: #64748b;
+  font-size: 12.5px;
   font-weight: 700;
   cursor: pointer;
-  transition: all 0.18s;
   letter-spacing: 0.02em;
+  margin-bottom: -1px;
+  transition: border-color 0.18s;
+  white-space: nowrap;
 }
 
 .tool-tab:hover {
-  background: rgba(255, 255, 255, 0.08);
-  color: #e2e8f0;
+  border-bottom-color: rgba(56, 189, 248, 0.4);
 }
 
 .tool-tab.active {
-  background: rgba(14, 165, 233, 0.18);
-  border-color: #38bdf8;
   color: #7dd3fc;
-  box-shadow: 0 0 0 1px #38bdf8 inset;
+  border-bottom-color: #38bdf8;
+}
+
+[data-theme="light"] .tool-tabs {
+  border-bottom-color: rgba(14, 165, 233, 0.2);
+}
+
+[data-theme="light"] .tool-tab {
+  color: #94a3b8;
+}
+
+[data-theme="light"] .tool-tab:hover {
+  border-bottom-color: rgba(2, 132, 199, 0.4);
+}
+
+[data-theme="light"] .tool-tab.active {
+  color: #0284c7;
+  border-bottom-color: #0284c7;
 }

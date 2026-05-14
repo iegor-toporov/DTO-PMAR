@@ -15,7 +15,7 @@ from pygeoapi.process.base import BaseProcessor, ProcessorExecuteError
 
 from processes.PMARProcess import (
     SCENARIOS_DIR, SCENARIOS_SHP_DIR, PRESSURE_MODELS,
-    ensure_t4msp_shapefile,
+    ensure_t4msp_shapefile, _fetch_t4msp_areas,
 )
 from processes.OpenDriftProcess import _get_forcing_file, _get_wind_file, _build_model, OUT_DIR
 from processes.logging_utils import setup_logger
@@ -87,6 +87,24 @@ PROCESS_METADATA = {
             'schema': {'type': 'string'},
             'minOccurs': 0, 'maxOccurs': 1,
         },
+        'area_name': {
+            'title': 'Seeding area name (drawn areas only)',
+            'description': 'User-provided name for a manually drawn seeding area.',
+            'schema': {'type': 'string'},
+            'minOccurs': 0, 'maxOccurs': 1,
+        },
+        'description': {
+            'title': 'Simulation description',
+            'description': 'Free-text notes about the simulation.',
+            'schema': {'type': 'string'},
+            'minOccurs': 0, 'maxOccurs': 1,
+        },
+        'cmems_margin': {
+            'title': 'CMEMS download margin (degrees)',
+            'description': 'Degrees added around the seeding area centre for CMEMS data download. Default: 5.0.',
+            'schema': {'type': 'number', 'default': 5.0},
+            'minOccurs': 0, 'maxOccurs': 1,
+        },
     },
     'outputs': {
         'result': {
@@ -126,7 +144,7 @@ def _save_custom_shapefile(geojson_input, shapefile_b64, dest_dir, custom_id):
     raise ProcessorExecuteError('Fornire geojson oppure shapefile_b64.')
 
 
-def _build_custom_scenario(data, shp_path=None):
+def _build_custom_scenario(data, shp_path=None, area_label=None):
     """Valida i parametri, crea lo shapefile (se non fornito) e il JSON di metadati. Restituisce (sc, custom_id, shp_path)."""
     geojson_input = data.get('geojson')
     shapefile_b64 = data.get('shapefile_b64')
@@ -155,18 +173,24 @@ def _build_custom_scenario(data, shp_path=None):
     if shp_path is None:
         shp_path = _save_custom_shapefile(geojson_input, shapefile_b64, SCENARIOS_SHP_DIR, custom_id)
 
+    cmems_margin = float(data.get('cmems_margin', 5.0))
+    cmems_margin = max(0.0, min(cmems_margin, 20.0))
+    description  = (data.get('description') or '').strip()
+
     sc = {
         'scenario_id':     custom_id,
         'label_it':        label,
         'label_en':        label,
-        'area_it':         'Area personalizzata',
-        'area_en':         'Custom area',
+        'area_it':         area_label or 'Area personalizzata',
+        'area_en':         area_label or 'Custom area',
         'pressure':        pressure,
         'pnum':            pnum,
         'duration_days':   duration_days,
         'time_step_hours': time_step_hours,
         'start_time':      start_time_str,
         'res':             res,
+        'cmems_margin':    cmems_margin,
+        'description':     description,
         'nc_filename':     f'{custom_id}.nc',
         'shapefile':       shp_path,
         'source':          'custom',
@@ -194,18 +218,20 @@ def _run_scenario(scenario_id, sc, shp_path):
     pnum            = sc['pnum']
     duration_days   = sc['duration_days']
     time_step_hours = sc['time_step_hours']
+    cmems_margin    = float(sc.get('cmems_margin', 5.0))
 
     gdf    = gpd.read_file(shp_path).to_crs('EPSG:4326')
     bounds = gdf.total_bounds
-    lon_c  = float((bounds[0] + bounds[2]) / 2)
-    lat_c  = float((bounds[1] + bounds[3]) / 2)
 
-    logger.info(f'[{scenario_id}] bounds={bounds.tolist()}, center=({lon_c:.2f}, {lat_c:.2f})')
+    logger.info(f'[{scenario_id}] bounds={bounds.tolist()}, cmems_margin={cmems_margin}°')
 
     pm_cfg = PRESSURE_MODELS[pressure]
-    forcing_paths = [_get_forcing_file(lon_c, lat_c, start_time, end_time, time_step_hours, pm_cfg.get('max_depth', 0.5))]
+    forcing_paths = [_get_forcing_file(
+        bounds[0], bounds[2], bounds[1], bounds[3],
+        start_time, end_time, time_step_hours, pm_cfg.get('max_depth', 0.5), cmems_margin,
+    )]
     if pm_cfg['needs_wind']:
-        wind_path = _get_wind_file(lon_c, lat_c, start_time, end_time)
+        wind_path = _get_wind_file(bounds[0], bounds[2], bounds[1], bounds[3], start_time, end_time, cmems_margin)
         if wind_path:
             forcing_paths.append(wind_path)
         else:
@@ -290,11 +316,17 @@ class PrecomputeProcessor(BaseProcessor):
         if not geojson_input and not shapefile_b64 and not t4msp_area_id:
             raise ProcessorExecuteError('Fornire geojson, shapefile_b64 oppure t4msp_area_id.')
 
-        shp_path = None
+        shp_path   = None
+        area_label = data.get('area_name') or None
         if t4msp_area_id is not None:
-            shp_path = ensure_t4msp_shapefile(int(t4msp_area_id))
+            area_id  = int(t4msp_area_id)
+            shp_path = ensure_t4msp_shapefile(area_id)
+            areas    = _fetch_t4msp_areas()
+            match    = next((a for a in areas if a['id'] == area_id), None)
+            if match:
+                area_label = match['label']
 
-        sc, scenario_id, shp_path = _build_custom_scenario(data, shp_path=shp_path)
+        sc, scenario_id, shp_path = _build_custom_scenario(data, shp_path=shp_path, area_label=area_label)
 
         logger.info(f'[PrecomputeProcess] Avvio pre-calcolo scenario: {scenario_id}')
 

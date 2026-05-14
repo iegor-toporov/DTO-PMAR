@@ -198,6 +198,12 @@ PROCESS_METADATA = {
             'schema': {'type': 'string'},
             'minOccurs': 0, 'maxOccurs': 1,
         },
+        'margin': {
+            'title': 'Study area margin (degrees)',
+            'description': 'Degrees added on each side of the seeding bounding box to define the study area. Default: 1.0.',
+            'schema': {'type': 'number', 'default': 1.0},
+            'minOccurs': 0, 'maxOccurs': 1,
+        },
     },
     'outputs': {
         'result': {
@@ -227,6 +233,8 @@ class PMARProcessor(BaseProcessor):
         use_source   = data.get('use_source', 'none')
         geotiff_b64  = data.get('geotiff_b64')
         geotiff_url  = data.get('geotiff_url')
+        margin       = float(data.get('margin', 1.0))
+        margin       = max(0.0, min(margin, 20.0))
 
         with tempfile.TemporaryDirectory() as tmpdir:
 
@@ -258,7 +266,7 @@ class PMARProcessor(BaseProcessor):
                 bounds     = gdf.total_bounds
                 logger.info(
                     f'Scenario: id={scenario_id}, use_source={use_source}, '
-                    f'res={res}, nc={sc["nc_filename"]}'
+                    f'res={res}, margin={margin}, nc={sc["nc_filename"]}'
                 )
 
             # ── Custom mode: simula e poi analizza ────────────────────────
@@ -294,8 +302,6 @@ class PMARProcessor(BaseProcessor):
                 shp_path = _resolve_shapefile(geojson_input, shapefile_b64, tmpdir)
                 gdf      = gpd.read_file(shp_path).to_crs('EPSG:4326')
                 bounds   = gdf.total_bounds
-                lon_c    = float((bounds[0] + bounds[2]) / 2)
-                lat_c    = float((bounds[1] + bounds[3]) / 2)
 
                 logger.info(
                     f'PMAR: pressure={pressure}, pnum={pnum}, '
@@ -304,9 +310,12 @@ class PMARProcessor(BaseProcessor):
                 )
 
                 pm_cfg = PRESSURE_MODELS[pressure]
-                forcing_paths = [_get_forcing_file(lon_c, lat_c, start_time, end_time, time_step_hours, pm_cfg.get('max_depth', 0.5))]
+                forcing_paths = [_get_forcing_file(
+                    bounds[0], bounds[2], bounds[1], bounds[3],
+                    start_time, end_time, time_step_hours, pm_cfg.get('max_depth', 0.5),
+                )]
                 if pm_cfg['needs_wind']:
-                    wind_path = _get_wind_file(lon_c, lat_c, start_time, end_time)
+                    wind_path = _get_wind_file(bounds[0], bounds[2], bounds[1], bounds[3], start_time, end_time)
                     if wind_path:
                         forcing_paths.append(wind_path)
                     else:
@@ -356,7 +365,6 @@ class PMARProcessor(BaseProcessor):
                 p = PMAR(context=None, pressure=pressure, basedir=pmar_basedir, loglevel=50)
                 p.ds = xr.open_dataset(nc_output)
 
-                margin     = 1.0
                 study_area = [
                     float(bounds[0]) - margin, float(bounds[1]) - margin,
                     float(bounds[2]) + margin, float(bounds[3]) + margin,

@@ -61,6 +61,8 @@ class ScenarioStatusProcessor(BaseProcessor):
                     'time_step_hours': sc['time_step_hours'],
                     'start_time':      sc['start_time'][:10],
                     'res':             sc['res'],
+                    'cmems_margin':    sc.get('cmems_margin', 5.0),
+                    'description':     sc.get('description', ''),
                     'source':          'custom',
                 }
             except Exception as e:

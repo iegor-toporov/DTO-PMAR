@@ -95,6 +95,10 @@ export default function PmarPanel({
   const [t4mspSearch,       setT4mspSearch]       = useState('')
 
   // New simulation params
+  const [customLabel,   setCustomLabel]   = useState('')
+  const [customDesc,    setCustomDesc]    = useState('')
+  const [seedAreaName,  setSeedAreaName]  = useState('')
+  const [cmemsMargin,   setCmemsMargin]   = useState('5')
   const [pressure,      setPressure]      = useState('generic')
   const [startDate,     setStartDate]     = useState(defaultStartDate())
   const [durationDays,  setDurationDays]  = useState('30')
@@ -103,6 +107,7 @@ export default function PmarPanel({
 
   // Analisi tab params
   const [res,         setRes]         = useState(0.1)
+  const [margin,      setMargin]      = useState('1')
   const [geotiffB64,  setGeotiffB64]  = useState(null)
   const [geotiffName, setGeotiffName] = useState('')
   const [geotiffUrl,  setGeotiffUrl]  = useState('')
@@ -169,7 +174,7 @@ export default function PmarPanel({
     const geojson = seedAreaMode === 'draw' ? seedShapeToGeoJSON(seedShape) : null
 
     const startIso = startDate + 'T00:00:00'
-    const label    = `${p.pressures[pressure]} — ${startDate}`
+    const label    = customLabel.trim() || `${p.pressures[pressure]} — ${startDate}`
     const inputs   = {
       pressure,
       start_time:      startIso,
@@ -180,6 +185,10 @@ export default function PmarPanel({
       ...(geojson            ? { geojson: JSON.stringify(geojson) }  : {}),
       ...(shapefileB64       ? { shapefile_b64: shapefileB64 }       : {}),
       ...(selectedT4mspArea  ? { t4msp_area_id: selectedT4mspArea }  : {}),
+      ...(seedAreaMode === 'draw' && seedAreaName.trim()
+            ? { area_name: seedAreaName.trim() } : {}),
+      cmems_margin: parseFloat(cmemsMargin) || 5.0,
+      ...(customDesc.trim() ? { description: customDesc.trim() } : {}),
     }
     try {
       const r    = await fetch('/processes/precompute/execution', {
@@ -223,6 +232,7 @@ export default function PmarPanel({
     onRun({
       scenario_id: scenarioId,
       res,
+      margin: parseFloat(margin) || 0,
       geotiff_b64: useSource === 'geotiff' ? geotiffB64 : null,
       geotiff_url: useSource === 'geotiff' ? gUrl        : null,
     })
@@ -324,17 +334,69 @@ export default function PmarPanel({
                   })}
                 </select>
               </div>
-              {scenarioId && scenarioStatuses[scenarioId] && (
-                <div className="pmar-scenario-select-meta">
-                  {p.pressures[scenarioStatuses[scenarioId].pressure]} · {scenarioStatuses[scenarioId].start_time} · {scenarioStatuses[scenarioId].duration_days} d · {scenarioStatuses[scenarioId].pnum?.toLocaleString()} p
-                </div>
-              )}
-              <div className="draw-hint" style={{ marginTop: 5 }}>{p.sectionExistingDesc}</div>
+              {(() => {
+                const sc = scenarioId ? scenarioStatuses[scenarioId] : null
+                if (sc) {
+                  const areaName = lang === 'it'
+                    ? (sc.area_it || p.areaUndefined)
+                    : (sc.area_en || p.areaUndefined)
+                  const isCustomArea = areaName === 'Area personalizzata' || areaName === 'Custom area'
+                  return (
+                    <div className="pmar-scenario-info" style={{ marginTop: 6 }}>
+                      <div className="pmar-scenario-info-row">
+                        <span>{p.seedAreaName}</span>
+                        <span>{isCustomArea ? p.areaUndefined : areaName}</span>
+                      </div>
+                      <div className="pmar-scenario-info-row">
+                        <span>{p.sectionPressure}</span><span>{p.pressures[sc.pressure]}</span>
+                      </div>
+                      <div className="pmar-scenario-info-row">
+                        <span>{p.labelStart}</span><span>{sc.start_time}</span>
+                      </div>
+                      <div className="pmar-scenario-info-row">
+                        <span>{p.labelDuration}</span><span>{sc.duration_days} d</span>
+                      </div>
+                      <div className="pmar-scenario-info-row">
+                        <span>{p.labelParticles}</span><span>{sc.pnum?.toLocaleString()}</span>
+                      </div>
+                      <div className="pmar-scenario-info-row">
+                        <span>{p.labelTimeStep}</span><span>{sc.time_step_hours} h</span>
+                      </div>
+                      <div className="pmar-scenario-info-row">
+                        <span>{p.labelCmemsMarginShort}</span><span>{sc.cmems_margin ?? 5} °</span>
+                      </div>
+                      {sc.description && (
+                        <div style={{ marginTop: 6, fontSize: 11.5, color: '#94a3b8', lineHeight: 1.5,
+                          borderTop: '1px solid rgba(148,163,184,0.12)', paddingTop: 6 }}>
+                          {sc.description}
+                        </div>
+                      )}
+                    </div>
+                  )
+                }
+                return <div className="draw-hint" style={{ marginTop: 5 }}>{p.sectionExistingDesc}</div>
+              })()}
             </>
         }
 
         {/* ── Nuova simulazione ────────────────────────────────────── */}
         <div className="pmar-section-title">{p.sectionNewScenario}</div>
+
+        {/* ── Titolo ──────────────────────────────────────────────── */}
+        <div className="form-row">
+          <label>{p.labelTitle}</label>
+          <input type="text" value={customLabel}
+            onChange={e => setCustomLabel(e.target.value)}
+            placeholder={p.labelTitleHint} />
+        </div>
+
+        {/* ── Descrizione ─────────────────────────────────────────── */}
+        <div className="form-row">
+          <label>{p.labelDesc}</label>
+          <textarea value={customDesc}
+            onChange={e => setCustomDesc(e.target.value)}
+            placeholder={p.labelDescHint} />
+        </div>
 
         {/* ── Area di seeding ─────────────────────────────────────── */}
         <div className="section-label" style={{ marginTop: 6 }}>{p.seedAreaLabel}</div>
@@ -373,6 +435,12 @@ export default function PmarPanel({
             {drawMode === 'rectangle' && <div className="draw-hint" style={{ marginTop: 6 }}>{p.hintRect}</div>}
             {!drawMode && seedInfo    && <div className="seed-info" style={{ marginTop: 6 }}>{seedInfo}</div>}
             {!drawMode && !seedShape  && <div className="draw-hint" style={{ marginTop: 6 }}>{p.hintNoShape}</div>}
+            <div className="form-row" style={{ marginTop: 8 }}>
+              <label>{p.labelSeedName}</label>
+              <input type="text" value={seedAreaName}
+                onChange={e => setSeedAreaName(e.target.value)}
+                placeholder={p.labelSeedNameHint} />
+            </div>
           </>
         )}
 
@@ -448,6 +516,12 @@ export default function PmarPanel({
           </div>
         </div>
 
+        <div className="form-row">
+          <label>{p.labelCmemsMargin}</label>
+          <input type="number" value={cmemsMargin} min="0" max="20" step="any"
+            onChange={e => setCmemsMargin(e.target.value)} />
+        </div>
+
         <div className={ncSizeClass}>
           {p.ncSizeHint.replace('{size}', formatNcSize(ncEstimateBytes))}
         </div>
@@ -492,6 +566,12 @@ export default function PmarPanel({
               <div className="pmar-scenario-info-row">
                 <span>{p.labelTimeStep}</span><span>{sc.time_step_hours} h</span>
               </div>
+              {sc.description && (
+                <div style={{ marginTop: 6, fontSize: 11.5, color: '#94a3b8', lineHeight: 1.5,
+                  borderTop: '1px solid rgba(148,163,184,0.12)', paddingTop: 6 }}>
+                  {sc.description}
+                </div>
+              )}
             </div>
           )
         })()}
@@ -548,6 +628,13 @@ export default function PmarPanel({
               <option key={r.value} value={r.value}>{r.label}</option>
             ))}
           </select>
+        </div>
+
+        {/* ── Margine study area ───────────────────────────────────── */}
+        <div className="form-row">
+          <label>{p.labelMargin}</label>
+          <input type="number" value={margin} min="0" max="20" step="any"
+            onChange={e => setMargin(e.target.value)} />
         </div>
 
         {/* ── Run ─────────────────────────────────────────────────── */}

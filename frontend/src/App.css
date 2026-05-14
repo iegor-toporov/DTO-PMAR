@@ -1,7 +1,7 @@
 /* Evita che i controlli Leaflet vengano oscurati dal panel */
 .leaflet-top.leaflet-left {
   top: 16px;
-  left: 320px;
+  left: 342px;
 }
 
 .map-theme-toggle {
@@ -26,6 +26,53 @@
 
 .map-theme-toggle:hover {
   background: rgba(30, 41, 59, 0.95);
+}
+
+.map-lang-toggle {
+  position: absolute;
+  top: 60px;
+  right: 16px;
+  z-index: 1000;
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  background: rgba(15, 23, 42, 0.82);
+  backdrop-filter: blur(8px);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: #94a3b8;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s, color 0.15s;
+}
+
+.map-lang-toggle:hover {
+  background: rgba(30, 41, 59, 0.95);
+  color: #e2e8f0;
+}
+
+[data-theme="light"] .map-lang-toggle {
+  background: rgba(255, 255, 255, 0.82);
+  border-color: rgba(14, 165, 233, 0.3);
+  color: #0369a1;
+}
+
+[data-theme="light"] .map-lang-toggle:hover {
+  background: rgba(240, 249, 255, 0.95);
+  color: #0284c7;
+}
+
+[data-theme="light"] .map-theme-toggle {
+  background: rgba(255, 255, 255, 0.82);
+  border-color: rgba(14, 165, 233, 0.3);
+}
+
+[data-theme="light"] .map-theme-toggle:hover {
+  background: rgba(240, 249, 255, 0.95);
 }
 
 .pmar-colorbar {
@@ -172,9 +219,6 @@
 }
 
 /* ── Typography ────────────────────────────────────────────────────────── */
-[data-theme="light"] .panel h2 {
-  color: #0284c7;
-}
 [data-theme="light"] .section-label {
   color: #0369a1;
 }

@@ -45,15 +45,7 @@ export default function Panel({
 
   return (
     <div className="panel">
-      {/* ── Header ──────────────────────────────────────────────────── */}
-      <div className="panel-header">
-        <h2>{activeTool === 'pmar' ? t.pmar.title : p.title}</h2>
-        <button className="lang-btn" onClick={toggle} title="Switch language">
-          {lang === 'it' ? 'EN' : 'IT'}
-        </button>
-      </div>
-
-      {/* ── Tool tabs ────────────────────────────────────────────────── */}
+      {/* ── Tab bar ─────────────────────────────────────────────────── */}
       <div className="tool-tabs">
         <button
           className={`tool-tab${activeTool === 'opendrift' ? ' active' : ''}`}
