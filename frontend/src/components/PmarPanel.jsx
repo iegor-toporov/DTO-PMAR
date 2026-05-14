@@ -9,12 +9,11 @@ const PRESSURES = [
 ]
 
 const USE_SOURCES = [
-  { key: 'none',                   icon: '—'   },
+  { key: 'none',                   icon: ''    },
   { key: 'windfarms',              icon: '⚡'  },
   { key: 'offshore_installations', icon: '🛢️' },
   { key: 'geotiff',               icon: '🗺️' },
 ]
-
 
 const RESOLUTIONS = [
   { value: 0.001, label: '0.001°' },
@@ -49,6 +48,28 @@ function formatSeedShape(s) {
   return `${s.lon_min.toFixed(2)}°–${s.lon_max.toFixed(2)}°E · ${s.lat_min.toFixed(2)}°–${s.lat_max.toFixed(2)}°N`
 }
 
+function seedShapeToGeoJSON(shape) {
+  if (!shape) return null
+  if (shape.type === 'circle') {
+    const { lon, lat, radius } = shape
+    const N = 64
+    const coords = []
+    for (let i = 0; i < N; i++) {
+      const angle = (i / N) * 2 * Math.PI
+      const dLat  = (radius / 111320) * Math.cos(angle)
+      const dLon  = (radius / (111320 * Math.cos(lat * Math.PI / 180))) * Math.sin(angle)
+      coords.push([lon + dLon, lat + dLat])
+    }
+    coords.push(coords[0])
+    return { type: 'FeatureCollection', features: [{ type: 'Feature', geometry: { type: 'Polygon', coordinates: [coords] }, properties: {} }] }
+  }
+  const { lon_min, lat_min, lon_max, lat_max } = shape
+  return {
+    type: 'FeatureCollection',
+    features: [{ type: 'Feature', geometry: { type: 'Polygon', coordinates: [[[lon_min,lat_min],[lon_max,lat_min],[lon_max,lat_max],[lon_min,lat_max],[lon_min,lat_min]]] }, properties: {} }],
+  }
+}
+
 export default function PmarPanel({
   onRun, loading, status, statusType,
   drawMode, onStartDraw, seedShape,
@@ -59,31 +80,45 @@ export default function PmarPanel({
   const { t, lang } = useLang()
   const p = t.pmar
 
-  const [runMode,       setRunMode]       = useState('custom')  // 'custom' | 'scenario'
-  const [scenarioId,    setScenarioId]    = useState('')
-  const [seedMode,      setSeedMode]      = useState('draw')   // 'draw' | 'upload'
+  // Tabs: 'custom' = Simulazione, 'scenario' = Analisi
+  const [runMode, setRunMode] = useState('custom')
+
+  // Seeding area mode in Simulation form
+  const [seedAreaMode,      setSeedAreaMode]      = useState('draw')
+  const [shapefileB64,      setShapefileB64]      = useState(null)
+  const [shapefileName,     setShapefileName]     = useState('')
+  const fileRef = useRef(null)
+
+  // T4MSP area picker (for seeding in new simulation form)
+  const [t4mspAreas,        setT4mspAreas]        = useState([])
+  const [selectedT4mspArea, setSelectedT4mspArea] = useState(null)
+  const [t4mspSearch,       setT4mspSearch]       = useState('')
+
+  // New simulation params
   const [pressure,      setPressure]      = useState('generic')
   const [startDate,     setStartDate]     = useState(defaultStartDate())
-  const [durationDays,  setDurationDays]  = useState('3')
-  const [pnum,          setPnum]          = useState('200')
-  const [res,           setRes]           = useState(0.1)
+  const [durationDays,  setDurationDays]  = useState('30')
+  const [pnum,          setPnum]          = useState('1000')
   const [timeStepHours, setTimeStepHours] = useState(1)
-  const [shapefileB64,  setShapefileB64]  = useState(null)
-  const [shapefileName, setShapefileName] = useState('')
-  const [geotiffB64,    setGeotiffB64]    = useState(null)
-  const [geotiffName,   setGeotiffName]   = useState('')
-  const [geotiffUrl,    setGeotiffUrl]    = useState('')
-  const fileRef    = useRef(null)
+
+  // Analisi tab params
+  const [res,         setRes]         = useState(0.1)
+  const [geotiffB64,  setGeotiffB64]  = useState(null)
+  const [geotiffName, setGeotiffName] = useState('')
+  const [geotiffUrl,  setGeotiffUrl]  = useState('')
   const geotiffRef = useRef(null)
 
+  // Scenario state
   const [scenarioStatuses, setScenarioStatuses] = useState({})
-  const [computingJobs, setComputingJobs]       = useState({})
-  const [t4mspSearch, setT4mspSearch]           = useState('')
-  const [t4mspAreaId, setT4mspAreaId]           = useState(null)
+  const [scenarioId,       setScenarioId]       = useState('')
 
-  // Fetch statuses quando si entra in scenario mode
+  // Custom precompute
+  const [customJob,             setCustomJob]             = useState(null)
+  const [customPrecomputeError, setCustomPrecomputeError] = useState(null)
+  const [refetchFlag,           setRefetchFlag]           = useState(0)
+
+  // ── Fetch statuses (on mount, tab switch, or explicit refetch) ────────────
   useEffect(() => {
-    if (runMode !== 'scenario') return
     fetch('/processes/scenario_status/execution', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -91,50 +126,71 @@ export default function PmarPanel({
     })
       .then(r => r.json())
       .then(raw => {
-        const data = raw.result ?? raw
+        const data    = raw.result ?? raw
+        const resp    = (data.scenarios !== undefined) ? data : { scenarios: data, t4msp_areas: [] }
         const s = {}
-        for (const [id, info] of Object.entries(data)) {
+        for (const [id, info] of Object.entries(resp.scenarios)) {
           s[id] = { ...info, status: info.computed ? 'ready' : 'not_computed' }
         }
         setScenarioStatuses(s)
+        setT4mspAreas(resp.t4msp_areas ?? [])
       })
       .catch(() => {})
-  }, [runMode])
+  }, [runMode, refetchFlag])
 
-  // Polling dei job in corso
+  // ── Polling custom precompute job ─────────────────────────────────────────
   useEffect(() => {
-    const running = Object.entries(computingJobs)
-    if (running.length === 0) return
+    if (!customJob) return
     const iv = setInterval(async () => {
-      for (const [sid, jobId] of running) {
-        try {
-          const r = await fetch(`/jobs/${jobId}`)
-          const job = await r.json()
-          if (job.status === 'successful') {
-            setComputingJobs(p => { const n = {...p}; delete n[sid]; return n })
-            setScenarioStatuses(p => ({...p, [sid]: {...p[sid], status: 'ready'}}))
-          } else if (job.status === 'failed') {
-            setComputingJobs(p => { const n = {...p}; delete n[sid]; return n })
-            setScenarioStatuses(p => ({...p, [sid]: {...p[sid], status: 'error'}}))
-          }
-        } catch {}
-      }
+      try {
+        const r   = await fetch(`/jobs/${customJob.jobId}`)
+        const job = await r.json()
+        if (job.status === 'successful') {
+          try {
+            const resR    = await fetch(`/jobs/${customJob.jobId}/results`)
+            const results = await resR.json()
+            const newSid  = results.scenario_id
+            if (newSid) setScenarioId(newSid)
+          } catch {}
+          setCustomJob(null)
+          setRefetchFlag(f => f + 1)
+        } else if (job.status === 'failed') {
+          setCustomJob(null)
+          setCustomPrecomputeError(p.computeBusy)
+          setRefetchFlag(f => f + 1)
+        }
+      } catch {}
     }, 5000)
     return () => clearInterval(iv)
-  }, [computingJobs])
+  }, [customJob, p.computeBusy])
 
-  async function handleComputeScenario(sid) {
-    setScenarioStatuses(p => ({...p, [sid]: {...(p[sid] ?? {}), status: 'computing'}}))
+  async function handleCustomCompute() {
+    setCustomPrecomputeError(null)
+    const geojson = seedAreaMode === 'draw' ? seedShapeToGeoJSON(seedShape) : null
+
+    const startIso = startDate + 'T00:00:00'
+    const label    = `${p.pressures[pressure]} — ${startDate}`
+    const inputs   = {
+      pressure,
+      start_time:      startIso,
+      duration_days:   parseInt(durationDays),
+      pnum:            parseInt(pnum),
+      time_step_hours: parseInt(timeStepHours),
+      label,
+      ...(geojson            ? { geojson: JSON.stringify(geojson) }  : {}),
+      ...(shapefileB64       ? { shapefile_b64: shapefileB64 }       : {}),
+      ...(selectedT4mspArea  ? { t4msp_area_id: selectedT4mspArea }  : {}),
+    }
     try {
-      const r = await fetch('/processes/precompute/execution', {
+      const r    = await fetch('/processes/precompute/execution', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Prefer': 'respond-async' },
-        body: JSON.stringify({ inputs: { scenario_id: sid } }),
+        body: JSON.stringify({ inputs }),
       })
       const data = await r.json()
-      setComputingJobs(p => ({...p, [sid]: data.jobID}))
+      setCustomJob({ jobId: data.jobID })
     } catch {
-      setScenarioStatuses(p => ({...p, [sid]: 'error'}))
+      setCustomPrecomputeError('Errore avvio pre-calcolo.')
     }
   }
 
@@ -162,37 +218,27 @@ export default function PmarPanel({
 
   function handleSubmit(e) {
     e.preventDefault()
+    if (runMode !== 'scenario') return
     const gUrl = geotiffUrl.trim() || null
-    if (runMode === 'scenario') {
-      onRun({
-        scenario_id: scenarioId, res,
-        geotiff_b64: useSource === 'geotiff' ? geotiffB64 : null,
-        geotiff_url: useSource === 'geotiff' ? gUrl        : null,
-      })
-      return
-    }
-    const startIso = startDate + 'T00:00:00'
     onRun({
-      pressure,
-      use_source:      useSource,
-      start_time:      startIso,
-      duration_days:   parseInt(durationDays),
-      pnum:            parseInt(pnum),
+      scenario_id: scenarioId,
       res,
-      time_step_hours: parseInt(timeStepHours),
-      shapefile_b64:   seedMode === 'upload' ? shapefileB64 : null,
-      geotiff_b64:     useSource === 'geotiff' ? geotiffB64 : null,
-      geotiff_url:     useSource === 'geotiff' ? gUrl        : null,
+      geotiff_b64: useSource === 'geotiff' ? geotiffB64 : null,
+      geotiff_url: useSource === 'geotiff' ? gUrl        : null,
     })
   }
 
-  const seedInfo   = seedMode === 'draw' ? formatSeedShape(seedShape) : null
-  const canSubmit  = !loading && (
-    runMode === 'scenario'
-      ? !!scenarioId && scenarioStatuses[scenarioId]?.status === 'ready'
-      : (seedMode === 'draw' ? !!seedShape : !!shapefileB64) &&
-        (useSource !== 'geotiff' || !!geotiffB64 || !!geotiffUrl.trim())
+  const seedInfo = seedAreaMode === 'draw' ? formatSeedShape(seedShape) : null
+
+  const canPrecompute = !customJob && !loading && (
+    (seedAreaMode === 'draw'   && !!seedShape) ||
+    (seedAreaMode === 'upload' && !!shapefileB64) ||
+    (seedAreaMode === 't4msp'  && !!selectedT4mspArea)
   )
+
+  const canSubmit = !loading && runMode === 'scenario' &&
+    !!scenarioId && scenarioStatuses[scenarioId]?.status === 'ready' &&
+    (useSource !== 'geotiff' || !!geotiffB64 || !!geotiffUrl.trim())
 
   const ncBytesPerStep  = pressure === 'oil' ? 160 : pressure === 'plastic' ? 60 : 40
   const stepsPerDay     = 24 / timeStepHours
@@ -206,10 +252,43 @@ export default function PmarPanel({
                     : ncEstimateBytes > 5e8 ? 'pmar-nc-size pmar-nc-size--caution'
                     : 'pmar-nc-size'
 
+  const customEntries = Object.entries(scenarioStatuses).filter(([, sc]) => sc.source === 'custom')
+
+  const searchLow      = t4mspSearch.toLowerCase()
+  const filteredAreas  = searchLow
+    ? t4mspAreas.filter(a => a.label.toLowerCase().includes(searchLow))
+    : t4mspAreas
+
+  function ScenarioItem({ sid, sc }) {
+    const st         = sc.status ?? 'unknown'
+    const isSelected = scenarioId === sid
+    const isReady    = st === 'ready'
+    const label      = lang === 'it' ? sc.label_it : sc.label_en
+    return (
+      <div
+        className={`pmar-scenario-item${isSelected && isReady ? ' selected' : ''}${!isReady ? ' disabled' : ''}`}
+        onClick={() => isReady && setScenarioId(sid)}
+      >
+        <div className="pmar-scenario-item-header">
+          <span className="pmar-scenario-item-label">{label}</span>
+          <span className="pmar-scenario-item-status">
+            {st === 'ready'        && '✅'}
+            {st === 'not_computed' && '⬜'}
+            {st === 'error'        && '❌'}
+            {st === 'unknown'      && '…'}
+          </span>
+        </div>
+        <div className="pmar-scenario-item-meta">
+          {p.pressures[sc.pressure]} · {sc.start_time} · {sc.duration_days} d · {sc.pnum?.toLocaleString()} p
+        </div>
+      </div>
+    )
+  }
+
   return (
     <form onSubmit={handleSubmit} className="pmar-form">
 
-      {/* ── Run mode toggle ───────────────────────────────────────────── */}
+      {/* ── Tab toggle ────────────────────────────────────────────────── */}
       <div className="pmar-mode-tabs" style={{ marginTop: 4 }}>
         <button type="button"
           className={`pmar-mode-tab${runMode === 'custom' ? ' active' : ''}`}
@@ -221,356 +300,264 @@ export default function PmarPanel({
         >{p.modeScenarioBtn}</button>
       </div>
 
-      {/* ── Scenario mode ─────────────────────────────────────────────── */}
-      {runMode === 'scenario' && (() => {
-        const isAnyComputing = Object.keys(computingJobs).length > 0
+      {/* ══════════════════════════════════════════════════════════════ */}
+      {/* ── TAB SIMULAZIONE ─────────────────────────────────────────── */}
+      {/* ══════════════════════════════════════════════════════════════ */}
+      {runMode === 'custom' && <>
 
-        function ScenarioItem({ sid, sc, labelOverride }) {
-          const status      = sc.status ?? 'unknown'
-          const isSelected  = scenarioId === sid
-          const isReady     = status === 'ready'
-          const isComputing = status === 'computing'
-          const otherComp   = isAnyComputing && !isComputing
-          const label       = labelOverride ?? (lang === 'it' ? sc.label_it : sc.label_en)
-          return (
-            <div
-              className={`pmar-scenario-item${isSelected && isReady ? ' selected' : ''}${!isReady ? ' disabled' : ''}`}
-              onClick={() => isReady && setScenarioId(sid)}
-            >
-              <div className="pmar-scenario-item-header">
-                <span className="pmar-scenario-item-label">{label}</span>
-                <span className="pmar-scenario-item-status">
-                  {status === 'ready'        && '✅'}
-                  {status === 'computing'    && '⏳'}
-                  {status === 'not_computed' && '⬜'}
-                  {status === 'error'        && '❌'}
-                  {status === 'unknown'      && '…'}
-                </span>
+        {/* ── Simulazioni esistenti ────────────────────────────────── */}
+        <div className="section-label" style={{ marginTop: 10 }}>{p.sectionExisting}</div>
+        {customEntries.length === 0
+          ? <div className="draw-hint">{p.noExisting}</div>
+          : <>
+              <div className="pmar-select-wrapper">
+                <select
+                  className="pmar-select pmar-scenario-select"
+                  value={scenarioId}
+                  onChange={e => setScenarioId(e.target.value)}
+                >
+                  <option value="">{p.scenarioNone}</option>
+                  {customEntries.map(([sid, sc]) => {
+                    const label = lang === 'it' ? sc.label_it : sc.label_en
+                    const icon  = sc.status === 'ready' ? '✅' : sc.status === 'not_computed' ? '⬜' : '❌'
+                    return <option key={sid} value={sid}>{icon} {label}</option>
+                  })}
+                </select>
               </div>
-              {status === 'not_computed' && !otherComp && (
-                <button type="button" className="pmar-compute-btn"
-                  onClick={e => { e.stopPropagation(); handleComputeScenario(sid) }}
-                >{p.computeBtn}</button>
+              {scenarioId && scenarioStatuses[scenarioId] && (
+                <div className="pmar-scenario-select-meta">
+                  {p.pressures[scenarioStatuses[scenarioId].pressure]} · {scenarioStatuses[scenarioId].start_time} · {scenarioStatuses[scenarioId].duration_days} d · {scenarioStatuses[scenarioId].pnum?.toLocaleString()} p
+                </div>
               )}
-              {isComputing  && <div className="pmar-computing-hint">{p.computingHint}</div>}
-              {otherComp && status === 'not_computed' && (
-                <div className="pmar-computing-hint">{p.computeBusy}</div>
-              )}
-            </div>
-          )
+              <div className="draw-hint" style={{ marginTop: 5 }}>{p.sectionExistingDesc}</div>
+            </>
         }
 
-        // Separate static vs T4MSP
-        const staticEntries = Object.entries(scenarioStatuses).filter(([, sc]) => sc.source !== 't4msp')
-        const t4mspEntries  = Object.entries(scenarioStatuses).filter(([, sc]) => sc.source === 't4msp')
+        {/* ── Nuova simulazione ────────────────────────────────────── */}
+        <div className="pmar-section-title">{p.sectionNewScenario}</div>
 
-        // Build sorted unique area list
-        const areaMap = {}
-        for (const [, sc] of t4mspEntries) {
-          if (!areaMap[sc.t4msp_area_id])
-            areaMap[sc.t4msp_area_id] = { id: sc.t4msp_area_id, label_it: sc.area_it, label_en: sc.area_en }
-        }
-        const allAreas = Object.values(areaMap)
-          .sort((a, b) => (lang === 'it' ? a.label_it : a.label_en).localeCompare(lang === 'it' ? b.label_it : b.label_en))
-        const searchLow    = t4mspSearch.toLowerCase()
-        const filteredAreas = searchLow
-          ? allAreas.filter(a => (lang === 'it' ? a.label_it : a.label_en).toLowerCase().includes(searchLow))
-          : allAreas
+        {/* ── Area di seeding ─────────────────────────────────────── */}
+        <div className="section-label" style={{ marginTop: 6 }}>{p.seedAreaLabel}</div>
 
-        return (
+        {/* Riga 1: gruppo Disegna */}
+        <div className={`pmar-draw-group${seedAreaMode === 'draw' ? ' active' : ''}`} style={{ marginBottom: 6 }}>
+          <button type="button"
+            className={`pmar-mode-tab${seedAreaMode === 'draw' ? ' active' : ''}`}
+            onClick={() => setSeedAreaMode('draw')}
+          >{p.seedAreaDraw}</button>
+          <button type="button"
+            className={`draw-btn${seedAreaMode === 'draw' && drawMode === 'circle' ? ' active' : ''}`}
+            onClick={() => { setSeedAreaMode('draw'); onStartDraw('circle') }}
+          >{p.btnCircle}</button>
+          <button type="button"
+            className={`draw-btn${seedAreaMode === 'draw' && drawMode === 'rectangle' ? ' active' : ''}`}
+            onClick={() => { setSeedAreaMode('draw'); onStartDraw('rectangle') }}
+          >{p.btnRect}</button>
+        </div>
+
+        {/* Riga 2: Shapefile + Area predefinita */}
+        <div className="pmar-seed-row" style={{ gridTemplateColumns: '1fr 1fr' }}>
+          <button type="button"
+            className={`pmar-mode-tab${seedAreaMode === 'upload' ? ' active' : ''}`}
+            onClick={() => setSeedAreaMode('upload')}
+          >{p.seedAreaUpload}</button>
+          <button type="button"
+            className={`pmar-mode-tab${seedAreaMode === 't4msp' ? ' active' : ''}`}
+            onClick={() => setSeedAreaMode('t4msp')}
+          >{p.seedAreaT4msp}</button>
+        </div>
+
+        {seedAreaMode === 'draw' && (
           <>
-            {/* ── Scenari predefiniti ──────────────────────────────────── */}
-            {staticEntries.length > 0 && (
-              <>
-                <div className="section-label" style={{ marginTop: 10 }}>{p.sectionScenarioStatic}</div>
-                <div className="pmar-scenario-list">
-                  {staticEntries.map(([sid, sc]) => <ScenarioItem key={sid} sid={sid} sc={sc} />)}
-                </div>
-              </>
-            )}
-
-            {/* ── Scenari Tools4MSP ────────────────────────────────────── */}
-            <div className="section-label" style={{ marginTop: 12 }}>{p.sectionScenarioT4msp}</div>
-            <input
-              className="pmar-url-input"
-              type="text"
-              placeholder={p.t4mspSearchHint}
-              value={t4mspSearch}
-              onChange={e => { setT4mspSearch(e.target.value); setT4mspAreaId(null); setScenarioId('') }}
-            />
-
-            <div className="pmar-area-list">
-              {filteredAreas.map(area => {
-                const isExpanded = t4mspAreaId === area.id
-                return (
-                  <div key={area.id}>
-                    <div
-                      className={`pmar-area-item${isExpanded ? ' selected' : ''}`}
-                      onClick={() => { setT4mspAreaId(isExpanded ? null : area.id); setScenarioId('') }}
-                    >
-                      <span>{lang === 'it' ? area.label_it : area.label_en}</span>
-                      <span className="pmar-area-dots">
-                        {['generic', 'plastic', 'oil'].map(pr => {
-                          const sc = scenarioStatuses[`t4msp_${area.id}_${pr}`]
-                          const st = sc?.status ?? '…'
-                          return <span key={pr} title={p.pressures[pr]}>
-                            {st === 'ready' ? '✅' : st === 'computing' ? '⏳' : st === 'not_computed' ? '⬜' : '⋯'}
-                          </span>
-                        })}
-                      </span>
-                    </div>
-                    {isExpanded && (
-                      <div className="pmar-scenario-list pmar-area-pressures">
-                        {['generic', 'plastic', 'oil'].map(pr => {
-                          const sid = `t4msp_${area.id}_${pr}`
-                          const sc  = scenarioStatuses[sid]
-                          if (!sc) return null
-                          return <ScenarioItem key={sid} sid={sid} sc={sc} labelOverride={p.pressures[pr]} />
-                        })}
-                      </div>
-                    )}
-                  </div>
-                )
-              })}
-              {t4mspEntries.length === 0 && (
-                <div className="draw-hint">⋯</div>
-              )}
-            </div>
-
-            {/* ── Info box scenario selezionato ───────────────────────── */}
-            {(() => {
-              const sc = scenarioStatuses[scenarioId]
-              if (!sc || sc.status !== 'ready') return null
-              return (
-                <div className="pmar-scenario-info">
-                  <div className="pmar-scenario-info-row"><span>{p.sectionSeed}</span><span>{lang === 'it' ? sc.area_it : sc.area_en}</span></div>
-                  <div className="pmar-scenario-info-row"><span>{p.sectionPressure}</span><span>{p.pressures[sc.pressure]}</span></div>
-                  <div className="pmar-scenario-info-row"><span>{p.labelStart}</span><span>{sc.start_time}</span></div>
-                  <div className="pmar-scenario-info-row"><span>{p.labelDuration}</span><span>{sc.duration_days} d</span></div>
-                  <div className="pmar-scenario-info-row"><span>{p.labelParticles}</span><span>{sc.pnum.toLocaleString()}</span></div>
-                  <div className="pmar-scenario-info-row"><span>{p.labelTimeStep}</span><span>{sc.time_step_hours} h</span></div>
-                  <div className="pmar-scenario-info-row"><span>{p.labelRes}</span><span>{sc.res}°</span></div>
-                </div>
-              )
-            })()}
+            {drawMode === 'circle'    && <div className="draw-hint" style={{ marginTop: 6 }}>{p.hintCircle}</div>}
+            {drawMode === 'rectangle' && <div className="draw-hint" style={{ marginTop: 6 }}>{p.hintRect}</div>}
+            {!drawMode && seedInfo    && <div className="seed-info" style={{ marginTop: 6 }}>{seedInfo}</div>}
+            {!drawMode && !seedShape  && <div className="draw-hint" style={{ marginTop: 6 }}>{p.hintNoShape}</div>}
           </>
-        )
-      })()}
+        )}
 
-      {/* ── Seeding mode toggle (solo custom) ────────────────────────── */}
-      {runMode === 'custom' && <>
-      <div className="section-label" style={{ marginTop: 10 }}>{p.sectionSeed}</div>
-      <div className="pmar-mode-tabs">
-        <button
-          type="button"
-          className={`pmar-mode-tab${seedMode === 'draw' ? ' active' : ''}`}
-          onClick={() => setSeedMode('draw')}
-        >{p.modeDrawBtn}</button>
-        <button
-          type="button"
-          className={`pmar-mode-tab${seedMode === 'upload' ? ' active' : ''}`}
-          onClick={() => setSeedMode('upload')}
-        >{p.modeUploadBtn}</button>
-      </div>
-
-      {/* ── Draw mode ─────────────────────────────────────────────────── */}
-      {seedMode === 'draw' && (
-        <>
-          <div className="draw-buttons" style={{ marginTop: 8 }}>
-            <button
-              type="button"
-              className={`draw-btn${drawMode === 'circle' ? ' active' : ''}`}
-              onClick={() => onStartDraw('circle')}
-            >{p.btnCircle}</button>
-            <button
-              type="button"
-              className={`draw-btn${drawMode === 'rectangle' ? ' active' : ''}`}
-              onClick={() => onStartDraw('rectangle')}
-            >{p.btnRect}</button>
-          </div>
-          {drawMode === 'circle'    && <div className="draw-hint">{p.hintCircle}</div>}
-          {drawMode === 'rectangle' && <div className="draw-hint">{p.hintRect}</div>}
-          {!drawMode && seedInfo    && <div className="seed-info">{seedInfo}</div>}
-          {!drawMode && !seedShape  && <div className="draw-hint">{p.hintNoShape}</div>}
-        </>
-      )}
-
-      {/* ── Upload mode ───────────────────────────────────────────────── */}
-      {seedMode === 'upload' && (
-        <div className="pmar-upload-area" onClick={() => fileRef.current?.click()}>
-          <input
-            ref={fileRef}
-            type="file"
-            accept=".zip"
-            style={{ display: 'none' }}
-            onChange={handleFileChange}
-          />
-          {shapefileB64
-            ? <span className="pmar-file-name">📂 {shapefileName}</span>
-            : <span className="pmar-upload-hint">{p.uploadHint}</span>
-          }
-        </div>
-      )}
-
-      {/* ── Pressure (solo custom) ───────────────────────────────────── */}
-      </>}
-
-      {runMode === 'custom' && <>
-      <div className="section-label" style={{ marginTop: 14 }}>{p.sectionPressure}</div>
-      <div className="pmar-pressure-grid">
-        {PRESSURES.map(pr => (
-          <button
-            key={pr.key}
-            type="button"
-            className={`pmar-pressure-btn${pressure === pr.key ? ' active' : ''}`}
-            onClick={() => setPressure(pr.key)}
-          >
-            {pr.icon} {p.pressures[pr.key]}
-          </button>
-        ))}
-      </div>
-      </>}
-
-      {/* ── Use layer (comune) ───────────────────────────────────────── */}
-      <div className="section-label" style={{ marginTop: 14 }}>{p.sectionUse}</div>
-      <div className="pmar-use-grid">
-        {USE_SOURCES.map(u => (
-          <button
-            key={u.key}
-            type="button"
-            className={`pmar-use-btn${useSource === u.key ? ' active' : ''}`}
-            onClick={() => onUseSourceChange(u.key)}
-          >
-            {u.key === 'windfarms' && windfarmsLoading ? '⏳ …'
-              : u.key === 'offshore_installations' && offshoreLoading ? '⏳ …'
-              : `${u.icon} ${p.useSources[u.key]}`
+        {seedAreaMode === 'upload' && (
+          <div className="pmar-upload-area" onClick={() => fileRef.current?.click()}>
+            <input ref={fileRef} type="file" accept=".zip" style={{ display: 'none' }}
+              onChange={handleFileChange} />
+            {shapefileB64
+              ? <span className="pmar-file-name">📂 {shapefileName}</span>
+              : <span className="pmar-upload-hint">{p.uploadHint}</span>
             }
-          </button>
-        ))}
-      </div>
-      {useSource === 'windfarms' && !windfarmsEmpty && (
-        <div className="pmar-use-info">{p.useWindfarmsInfo}</div>
-      )}
-      {useSource === 'windfarms' && windfarmsEmpty && (
-        <div className="pmar-use-warn">{p.useWindfarmsEmpty}</div>
-      )}
-      {useSource === 'offshore_installations' && !offshoreEmpty && (
-        <div className="pmar-use-info">{p.useOffshoreInfo}</div>
-      )}
-      {useSource === 'offshore_installations' && offshoreEmpty && (
-        <div className="pmar-use-warn">{p.useOffshoreEmpty}</div>
-      )}
-      {useSource === 'geotiff' && (
-        <>
-          <div className="pmar-upload-area" onClick={() => geotiffRef.current?.click()}>
-            <input
-              ref={geotiffRef}
-              type="file"
-              accept=".tif,.tiff"
-              style={{ display: 'none' }}
-              onChange={handleGeotiffChange}
+          </div>
+        )}
+
+        {seedAreaMode === 't4msp' && (
+          <>
+            <input className="pmar-url-input" type="text" placeholder={p.t4mspSearchHint}
+              value={t4mspSearch}
+              onChange={e => { setT4mspSearch(e.target.value); setSelectedT4mspArea(null) }}
+              style={{ marginTop: 8 }}
             />
-            {geotiffB64
-              ? <span className="pmar-file-name">🗺️ {geotiffName}</span>
-              : <span className="pmar-upload-hint">{p.geotiffUploadHint}</span>
-            }
+            <div className="pmar-area-list">
+              {filteredAreas.map(area => (
+                <div
+                  key={area.id}
+                  className={`pmar-area-item${selectedT4mspArea === area.id ? ' selected' : ''}`}
+                  onClick={() => setSelectedT4mspArea(selectedT4mspArea === area.id ? null : area.id)}
+                >
+                  <span>{area.label}</span>
+                  {selectedT4mspArea === area.id && <span>✅</span>}
+                </div>
+              ))}
+              {filteredAreas.length === 0 && <div className="draw-hint">⋯</div>}
+            </div>
+          </>
+        )}
+
+        {/* ── Tipo di pressione ────────────────────────────────────── */}
+        <div className="section-label" style={{ marginTop: 14 }}>{p.sectionPressure}</div>
+        <div className="pmar-pressure-grid">
+          {PRESSURES.map(pr => (
+            <button key={pr.key} type="button"
+              className={`pmar-pressure-btn${pressure === pr.key ? ' active' : ''}`}
+              onClick={() => setPressure(pr.key)}
+            >{pr.icon} {p.pressures[pr.key]}</button>
+          ))}
+        </div>
+
+        {/* ── Parametri ───────────────────────────────────────────── */}
+        <div className="form-row">
+          <label>{p.labelStart}</label>
+          <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} />
+        </div>
+        <div className="form-grid">
+          <div className="form-row">
+            <label>{p.labelDuration}</label>
+            <input type="number" value={durationDays} min="1" max="730"
+              onChange={e => setDurationDays(e.target.value)} />
           </div>
-          <div className="pmar-url-separator">{p.geotiffOrLabel}</div>
-          <input
-            className={`pmar-url-input${geotiffUrl.trim() ? ' has-value' : ''}`}
-            type="url"
-            placeholder={p.geotiffUrlHint}
-            value={geotiffUrl}
-            onChange={e => setGeotiffUrl(e.target.value)}
-          />
-        </>
-      )}
-
-      {/* ── Params (solo custom) ─────────────────────────────────────── */}
-      {runMode === 'custom' && <>
-      <div className="form-row">
-        <label>{p.labelStart}</label>
-        <input
-          type="date"
-          value={startDate}
-          onChange={e => setStartDate(e.target.value)}
-        />
-      </div>
-
-      <div className="form-grid">
-        <div className="form-row">
-          <label>{p.labelDuration}</label>
-          <input
-            type="number" value={durationDays} min="1" max="730"
-            onChange={e => setDurationDays(e.target.value)}
-          />
-        </div>
-        <div className="form-row">
-          <label>{p.labelParticles}</label>
-          <input
-            type="number" value={pnum} min="10" max="100000"
-            onChange={e => setPnum(e.target.value)}
-          />
-        </div>
-      </div>
-
-      <div className="form-grid">
-        <div className="form-row">
-          <label>{p.labelRes}</label>
-          <select
-            className="pmar-select"
-            value={res}
-            onChange={e => setRes(parseFloat(e.target.value))}
-          >
-            {RESOLUTIONS.map(r => (
-              <option key={r.value} value={r.value}>{r.label}</option>
-            ))}
-          </select>
+          <div className="form-row">
+            <label>{p.labelParticles}</label>
+            <input type="number" value={pnum} min="10" max="100000"
+              onChange={e => setPnum(e.target.value)} />
+          </div>
         </div>
         <div className="form-row">
           <label>{p.labelTimeStep}</label>
-          <select
-            className="pmar-select"
-            value={timeStepHours}
-            onChange={e => setTimeStepHours(parseInt(e.target.value))}
-          >
-            {TIME_STEPS.map(s => (
-              <option key={s.value} value={s.value}>{s.label}</option>
-            ))}
-          </select>
+          <div className="pmar-select-wrapper" style={{ marginTop: 0 }}>
+            <select className="pmar-select pmar-scenario-select" value={timeStepHours}
+              onChange={e => setTimeStepHours(parseInt(e.target.value))}>
+              {TIME_STEPS.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
+            </select>
+          </div>
         </div>
-      </div>
+
+        <div className={ncSizeClass}>
+          {p.ncSizeHint.replace('{size}', formatNcSize(ncEstimateBytes))}
+        </div>
+
+        <button type="button" className="run-btn" disabled={!canPrecompute}
+          onClick={handleCustomCompute}
+        >{customJob ? p.btnPrecomputing : p.btnPrecompute}</button>
+
+        {customPrecomputeError && (
+          <div className="status error">{customPrecomputeError}</div>
+        )}
       </>}
 
-      {/* ── Risoluzione griglia (scenario mode) ──────────────────────── */}
-      {runMode === 'scenario' && (
+      {/* ══════════════════════════════════════════════════════════════ */}
+      {/* ── TAB ANALISI ─────────────────────────────────────────────── */}
+      {/* ══════════════════════════════════════════════════════════════ */}
+      {runMode === 'scenario' && <>
+
+        {/* ── Info simulazione selezionata ─────────────────────────── */}
+        {(() => {
+          const sc = scenarioStatuses[scenarioId]
+          if (!sc || sc.status !== 'ready') {
+            return (
+              <div className="draw-hint" style={{ marginTop: 12 }}>{p.hintNoScenario}</div>
+            )
+          }
+          return (
+            <div className="pmar-scenario-info" style={{ marginTop: 10 }}>
+              <div className="pmar-scenario-info-row">
+                <span>{p.sectionPressure}</span>
+                <span>{p.pressures[sc.pressure]}</span>
+              </div>
+              <div className="pmar-scenario-info-row">
+                <span>{p.labelStart}</span><span>{sc.start_time}</span>
+              </div>
+              <div className="pmar-scenario-info-row">
+                <span>{p.labelDuration}</span><span>{sc.duration_days} d</span>
+              </div>
+              <div className="pmar-scenario-info-row">
+                <span>{p.labelParticles}</span><span>{sc.pnum?.toLocaleString()}</span>
+              </div>
+              <div className="pmar-scenario-info-row">
+                <span>{p.labelTimeStep}</span><span>{sc.time_step_hours} h</span>
+              </div>
+            </div>
+          )
+        })()}
+
+        {/* ── Layer sorgente ───────────────────────────────────────── */}
+        <div className="section-label" style={{ marginTop: 14 }}>{p.sectionUse}</div>
+        <div className="pmar-use-grid">
+          {USE_SOURCES.map(u => (
+            <button key={u.key} type="button"
+              className={`pmar-use-btn${useSource === u.key ? ' active' : ''}`}
+              onClick={() => onUseSourceChange(u.key)}
+            >
+              {u.key === 'windfarms' && windfarmsLoading ? '⏳ …'
+                : u.key === 'offshore_installations' && offshoreLoading ? '⏳ …'
+                : u.icon ? `${u.icon} ${p.useSources[u.key]}` : p.useSources[u.key]}
+            </button>
+          ))}
+        </div>
+        {useSource === 'windfarms' && !windfarmsEmpty && (
+          <div className="pmar-use-info">{p.useWindfarmsInfo}</div>
+        )}
+        {useSource === 'windfarms' && windfarmsEmpty && (
+          <div className="pmar-use-warn">{p.useWindfarmsEmpty}</div>
+        )}
+        {useSource === 'offshore_installations' && !offshoreEmpty && (
+          <div className="pmar-use-info">{p.useOffshoreInfo}</div>
+        )}
+        {useSource === 'offshore_installations' && offshoreEmpty && (
+          <div className="pmar-use-warn">{p.useOffshoreEmpty}</div>
+        )}
+        {useSource === 'geotiff' && (
+          <>
+            <div className="pmar-upload-area" onClick={() => geotiffRef.current?.click()}>
+              <input ref={geotiffRef} type="file" accept=".tif,.tiff"
+                style={{ display: 'none' }} onChange={handleGeotiffChange} />
+              {geotiffB64
+                ? <span className="pmar-file-name">🗺️ {geotiffName}</span>
+                : <span className="pmar-upload-hint">{p.geotiffUploadHint}</span>
+              }
+            </div>
+            <div className="pmar-url-separator">{p.geotiffOrLabel}</div>
+            <input className={`pmar-url-input${geotiffUrl.trim() ? ' has-value' : ''}`}
+              type="url" placeholder={p.geotiffUrlHint} value={geotiffUrl}
+              onChange={e => setGeotiffUrl(e.target.value)} />
+          </>
+        )}
+
+        {/* ── Risoluzione ──────────────────────────────────────────── */}
         <div className="form-row" style={{ marginTop: 10 }}>
           <label>{p.labelRes}</label>
-          <select
-            className="pmar-select"
-            value={res}
-            onChange={e => setRes(parseFloat(e.target.value))}
-          >
+          <select className="pmar-select" value={res}
+            onChange={e => setRes(parseFloat(e.target.value))}>
             {RESOLUTIONS.map(r => (
               <option key={r.value} value={r.value}>{r.label}</option>
             ))}
           </select>
         </div>
-      )}
 
-      <button className="run-btn" type="submit" disabled={!canSubmit}>
-        {loading ? p.btnRunning : p.btnRun}
-      </button>
+        {/* ── Run ─────────────────────────────────────────────────── */}
+        <button className="run-btn" type="submit" disabled={!canSubmit}>
+          {loading ? p.btnRunning : p.btnRun}
+        </button>
 
-      {runMode === 'custom' && (
-        <div className={ncSizeClass}>
-          {p.ncSizeHint.replace('{size}', formatNcSize(ncEstimateBytes))}
-        </div>
-      )}
+        {status && <div className={`status ${statusType}`}>{status}</div>}
+      </>}
 
-      {status && (
-        <div className={`status ${statusType}`}>{status}</div>
-      )}
     </form>
   )
 }

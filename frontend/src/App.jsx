@@ -268,6 +268,31 @@ function WindFarmsLayer({ geojson, visible }) {
   return null
 }
 
+// ── PMAR seeding area polygon layer ─────────────────────────────────────────
+function SeedingAreaLayer({ geojson, visible }) {
+  const map      = useMap()
+  const layerRef = useRef(null)
+
+  useEffect(() => {
+    layerRef.current?.remove()
+    layerRef.current = null
+    if (!geojson || !visible) return
+    layerRef.current = L.geoJSON(geojson, {
+      style: {
+        color:       '#38bdf8',
+        fillColor:   '#7dd3fc',
+        fillOpacity: 0.12,
+        weight:      2,
+        opacity:     0.85,
+        dashArray:   '6 4',
+      },
+    }).addTo(map)
+    return () => { layerRef.current?.remove(); layerRef.current = null }
+  }, [geojson, visible, map])
+
+  return null
+}
+
 // ── PMAR raster overlay (canvas layer con hover per cella) ───────────────────
 function PmarLayer({ pmarData, visible, passagesLabel }) {
   const map          = useMap()
@@ -446,6 +471,7 @@ export default function App() {
 
   // active tool
   const [activeTool, setActiveTool] = useState('opendrift')
+  const [mapTheme,   setMapTheme]   = useState('light')
 
   // seed shape (shared between tools)
   const [drawMode,      setDrawMode]      = useState(null)
@@ -742,7 +768,7 @@ export default function App() {
   }
 
   return (
-    <div style={{ position: 'relative', height: '100vh' }}>
+    <div style={{ position: 'relative', height: '100vh' }} data-theme={mapTheme}>
       <MapContainer
         center={[44, 12.5]}
         zoom={7}
@@ -750,13 +776,15 @@ export default function App() {
         zoomControl
       >
         <TileLayer
-          url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
+          key={mapTheme}
+          url={`https://{s}.basemaps.cartocdn.com/${mapTheme}_all/{z}/{x}/{y}{r}.png`}
           attribution='© OpenStreetMap · © CARTO'
           subdomains="abcd"
           maxZoom={19}
         />
         <SimLayer simData={simData} currentStep={currentStep} />
         <PmarLayer pmarData={pmarData} visible={showPmarRaster} passagesLabel={t.pmarControls.tooltipPassages} />
+        <SeedingAreaLayer geojson={pmarData?.seeding_geojson ?? null} visible={showSeedShape} />
         <WindFarmsLayer geojson={windfarmsGeoJSON} visible={showWindFarms} />
         <OffshoreInstallationsLayer geojson={offshoreGeoJSON} visible={showOffshoreInstallations} />
         <SeedDrawer
@@ -766,6 +794,14 @@ export default function App() {
           onShapeDone={handleShapeDone}
         />
       </MapContainer>
+
+      <button
+        className="map-theme-toggle"
+        title={mapTheme === 'dark' ? 'Switch to light map' : 'Switch to dark map'}
+        onClick={() => setMapTheme(prev => prev === 'dark' ? 'light' : 'dark')}
+      >
+        {mapTheme === 'dark' ? '☀️' : '🌙'}
+      </button>
 
       <Panel
         onRun={handleRun}

@@ -1,17 +1,21 @@
+import base64
+import glob
+import io
+import json
 import os
 import uuid
 import time as _time
 import threading
+import zipfile
 from datetime import datetime, timedelta
 
 import geopandas as gpd
-from shapely.geometry import Polygon
 
 from pygeoapi.process.base import BaseProcessor, ProcessorExecuteError
 
 from processes.PMARProcess import (
-    SCENARIOS, SCENARIOS_DIR, SCENARIOS_SHP_DIR, PRESSURE_MODELS,
-    get_t4msp_scenarios, ensure_t4msp_shapefile,
+    SCENARIOS_DIR, SCENARIOS_SHP_DIR, PRESSURE_MODELS,
+    ensure_t4msp_shapefile,
 )
 from processes.OpenDriftProcess import _get_forcing_file, _get_wind_file, _build_model, OUT_DIR
 from processes.logging_utils import setup_logger
@@ -30,11 +34,58 @@ PROCESS_METADATA = {
     'jobControlOptions': ['async-execute'],
     'keywords': ['pmar', 'precompute', 'scenario', 'trajectories'],
     'inputs': {
-        'scenario_id': {
-            'title': 'Scenario ID',
-            'description': 'ID of the scenario to pre-compute (must be one of the keys in SCENARIOS).',
+        'geojson': {
+            'title': 'Seeding area GeoJSON',
+            'description': 'GeoJSON string for the seeding area.',
             'schema': {'type': 'string'},
-            'minOccurs': 1, 'maxOccurs': 1,
+            'minOccurs': 0, 'maxOccurs': 1,
+        },
+        't4msp_area_id': {
+            'title': 'Tools4MSP area ID',
+            'description': 'Numeric ID of a Tools4MSP domain area to use as seeding region.',
+            'schema': {'type': 'integer'},
+            'minOccurs': 0, 'maxOccurs': 1,
+        },
+        'shapefile_b64': {
+            'title': 'Shapefile ZIP (base64)',
+            'description': 'Base64-encoded shapefile ZIP for custom seeding area.',
+            'schema': {'type': 'string'},
+            'minOccurs': 0, 'maxOccurs': 1,
+        },
+        'pressure': {
+            'title': 'Pressure type',
+            'schema': {'type': 'string', 'default': 'generic'},
+            'minOccurs': 0, 'maxOccurs': 1,
+        },
+        'start_time': {
+            'title': 'Simulation start time (ISO 8601)',
+            'schema': {'type': 'string'},
+            'minOccurs': 0, 'maxOccurs': 1,
+        },
+        'duration_days': {
+            'title': 'Duration (days)',
+            'schema': {'type': 'integer', 'default': 30},
+            'minOccurs': 0, 'maxOccurs': 1,
+        },
+        'pnum': {
+            'title': 'Number of particles',
+            'schema': {'type': 'integer', 'default': 1000},
+            'minOccurs': 0, 'maxOccurs': 1,
+        },
+        'time_step_hours': {
+            'title': 'Time step (hours)',
+            'schema': {'type': 'integer', 'default': 1},
+            'minOccurs': 0, 'maxOccurs': 1,
+        },
+        'res': {
+            'title': 'Grid resolution (degrees)',
+            'schema': {'type': 'number', 'default': 0.1},
+            'minOccurs': 0, 'maxOccurs': 1,
+        },
+        'label': {
+            'title': 'Scenario label',
+            'schema': {'type': 'string'},
+            'minOccurs': 0, 'maxOccurs': 1,
         },
     },
     'outputs': {
@@ -45,26 +96,87 @@ PROCESS_METADATA = {
     },
 }
 
-SHAPEFILE_POLYGONS = {
-    'adriatico.shp': [
-        (12.4, 37.9), (18.5, 39.7), (19.5, 41.0), (18.8, 42.2),
-        (17.0, 43.5), (17.8, 44.5), (18.5, 45.2), (14.3, 45.8),
-        (13.5, 45.7), (13.1, 45.6), (12.4, 45.1), (12.2, 44.5),
-        (12.0, 43.5), (12.2, 42.0), (12.0, 40.5), (12.4, 37.9),
-    ],
-}
 
-
-def _ensure_shapefiles():
-    for filename, coords in SHAPEFILE_POLYGONS.items():
-        shp_path = os.path.join(SCENARIOS_SHP_DIR, filename)
-        if not os.path.exists(shp_path):
-            logger.info(f'Creo shapefile: {filename}')
-            gdf = gpd.GeoDataFrame(geometry=[Polygon(coords)], crs='EPSG:4326')
-            gdf.to_file(shp_path)
-            logger.info(f'Shapefile creato: {shp_path}')
+def _save_custom_shapefile(geojson_input, shapefile_b64, dest_dir, custom_id):
+    """Salva la geometria di un custom scenario in dest_dir e restituisce il path .shp."""
+    shp_path = os.path.join(dest_dir, f'{custom_id}.shp')
+    if geojson_input is not None:
+        geojson = json.loads(geojson_input) if isinstance(geojson_input, str) else geojson_input
+        if geojson.get('type') == 'FeatureCollection':
+            features = geojson['features']
+        elif geojson.get('type') == 'Feature':
+            features = [geojson]
         else:
-            logger.info(f'Shapefile già presente: {filename}')
+            features = [{'type': 'Feature', 'geometry': geojson, 'properties': {}}]
+        gdf = gpd.GeoDataFrame.from_features(features, crs='EPSG:4326')
+        gdf.to_file(shp_path)
+        return shp_path
+    if shapefile_b64 is not None:
+        import tempfile
+        zip_bytes = base64.b64decode(shapefile_b64)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
+                zf.extractall(tmpdir)
+            shp_files = glob.glob(os.path.join(tmpdir, '**', '*.shp'), recursive=True)
+            if not shp_files:
+                raise ProcessorExecuteError('Nessun file .shp trovato nello ZIP.')
+            gdf = gpd.read_file(shp_files[0]).to_crs('EPSG:4326')
+        gdf.to_file(shp_path)
+        return shp_path
+    raise ProcessorExecuteError('Fornire geojson oppure shapefile_b64.')
+
+
+def _build_custom_scenario(data, shp_path=None):
+    """Valida i parametri, crea lo shapefile (se non fornito) e il JSON di metadati. Restituisce (sc, custom_id, shp_path)."""
+    geojson_input = data.get('geojson')
+    shapefile_b64 = data.get('shapefile_b64')
+    pressure      = data.get('pressure', 'generic')
+    if pressure not in PRESSURE_MODELS:
+        raise ProcessorExecuteError(f'Pressione non valida: {pressure!r}')
+
+    duration_days   = int(data.get('duration_days', 30))
+    pnum            = min(int(data.get('pnum', 1000)), 100000)
+    time_step_hours = int(data.get('time_step_hours', 1))
+    time_step_hours = max(1, min(time_step_hours, 24))
+    res             = float(data.get('res', 0.1))
+
+    start_time_str = data.get('start_time')
+    if not start_time_str:
+        start_time_str = (datetime.utcnow() - timedelta(days=10)).strftime('%Y-%m-%dT00:00:00')
+    else:
+        try:
+            datetime.fromisoformat(start_time_str)
+        except ValueError:
+            raise ProcessorExecuteError(f'start_time non valido: {start_time_str!r}')
+
+    label     = data.get('label') or f'{PRESSURE_MODELS[pressure]["label_en"]} — {start_time_str[:10]}'
+    custom_id = f'custom_{uuid.uuid4().hex[:8]}'
+
+    if shp_path is None:
+        shp_path = _save_custom_shapefile(geojson_input, shapefile_b64, SCENARIOS_SHP_DIR, custom_id)
+
+    sc = {
+        'scenario_id':     custom_id,
+        'label_it':        label,
+        'label_en':        label,
+        'area_it':         'Area personalizzata',
+        'area_en':         'Custom area',
+        'pressure':        pressure,
+        'pnum':            pnum,
+        'duration_days':   duration_days,
+        'time_step_hours': time_step_hours,
+        'start_time':      start_time_str,
+        'res':             res,
+        'nc_filename':     f'{custom_id}.nc',
+        'shapefile':       shp_path,
+        'source':          'custom',
+    }
+    meta_path = os.path.join(SCENARIOS_DIR, f'{custom_id}.json')
+    with open(meta_path, 'w') as f:
+        json.dump(sc, f, indent=2)
+
+    logger.info(f'[PrecomputeProcess] Scenario custom creato: {custom_id}, label={label!r}')
+    return sc, custom_id, shp_path
 
 
 def _run_scenario(scenario_id, sc, shp_path):
@@ -171,25 +283,18 @@ class PrecomputeProcessor(BaseProcessor):
         super().__init__(processor_def, PROCESS_METADATA)
 
     def execute(self, data):
-        scenario_id = data.get('scenario_id')
-        if not scenario_id:
-            raise ProcessorExecuteError('scenario_id è obbligatorio.')
+        geojson_input  = data.get('geojson')
+        shapefile_b64  = data.get('shapefile_b64')
+        t4msp_area_id  = data.get('t4msp_area_id')
 
-        # Risolvi config e shapefile in base al tipo di scenario
-        if scenario_id in SCENARIOS:
-            sc           = SCENARIOS[scenario_id]
-            is_t4msp     = False
-        elif scenario_id.startswith('t4msp_'):
-            t4msp_sc = get_t4msp_scenarios()
-            if scenario_id not in t4msp_sc:
-                raise ProcessorExecuteError(f'Scenario T4MSP sconosciuto: {scenario_id!r}')
-            sc       = t4msp_sc[scenario_id]
-            is_t4msp = True
-        else:
-            raise ProcessorExecuteError(
-                f'Scenario sconosciuto: {scenario_id!r}. '
-                f'Disponibili: {list(SCENARIOS.keys())}'
-            )
+        if not geojson_input and not shapefile_b64 and not t4msp_area_id:
+            raise ProcessorExecuteError('Fornire geojson, shapefile_b64 oppure t4msp_area_id.')
+
+        shp_path = None
+        if t4msp_area_id is not None:
+            shp_path = ensure_t4msp_shapefile(int(t4msp_area_id))
+
+        sc, scenario_id, shp_path = _build_custom_scenario(data, shp_path=shp_path)
 
         logger.info(f'[PrecomputeProcess] Avvio pre-calcolo scenario: {scenario_id}')
 
@@ -197,19 +302,12 @@ class PrecomputeProcessor(BaseProcessor):
             raise ProcessorExecuteError('Un pre-calcolo è già in corso. Riprova al termine.')
 
         try:
-            if is_t4msp:
-                shp_path = ensure_t4msp_shapefile(sc['t4msp_area_id'])
-            else:
-                _ensure_shapefiles()
-                shp_path = sc['shapefile']
             _run_scenario(scenario_id, sc, shp_path)
         except Exception as e:
             logger.error(f'[PrecomputeProcess] Errore nel pre-calcolo di {scenario_id}: {e}', exc_info=True)
             raise ProcessorExecuteError(str(e))
         finally:
             _precompute_lock.release()
-
-        nc_path = os.path.join(SCENARIOS_DIR, sc['nc_filename'])
 
         logger.info(f'[PrecomputeProcess] Pre-calcolo completato: {sc["nc_filename"]}')
 

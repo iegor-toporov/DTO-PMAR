@@ -29,68 +29,10 @@ SCENARIOS_SHP_DIR = os.path.join(SCENARIOS_DIR, 'shapefiles')
 os.makedirs(SCENARIOS_DIR,     exist_ok=True)
 os.makedirs(SCENARIOS_SHP_DIR, exist_ok=True)
 
-SCENARIOS = {
-    'adriatico_generic': {
-        'label_it':        'Adriatico – Tracciante 2024',
-        'label_en':        'Adriatic Sea – Tracer 2024',
-        'area_it':         'Mar Adriatico',
-        'area_en':         'Adriatic Sea',
-        'shapefile':       os.path.join(SCENARIOS_SHP_DIR, 'adriatico.shp'),
-        'pressure':        'generic',
-        'pnum':            100000,
-        'duration_days':   365,
-        'time_step_hours': 24,
-        'start_time':      '2024-01-01T00:00:00',
-        'res':             0.05,
-        'nc_filename':     'adriatico_generic_20240101_365d.nc',
-    },
-    'adriatico_plastic': {
-        'label_it':        'Adriatico – Plastica 2024',
-        'label_en':        'Adriatic Sea – Plastic 2024',
-        'area_it':         'Mar Adriatico',
-        'area_en':         'Adriatic Sea',
-        'shapefile':       os.path.join(SCENARIOS_SHP_DIR, 'adriatico.shp'),
-        'pressure':        'plastic',
-        'pnum':            100000,
-        'duration_days':   365,
-        'time_step_hours': 24,
-        'start_time':      '2024-01-01T00:00:00',
-        'res':             0.05,
-        'nc_filename':     'adriatico_plastic_20240101_365d.nc',
-    },
-    'adriatico_oil_2024': {
-        'label_it':        'Adriatico – Petrolio 2024',
-        'label_en':        'Adriatic Sea – Oil 2024',
-        'area_it':         'Mar Adriatico',
-        'area_en':         'Adriatic Sea',
-        'shapefile':       os.path.join(SCENARIOS_SHP_DIR, 'adriatico.shp'),
-        'pressure':        'oil',
-        'pnum':            100000,
-        'duration_days':   365,
-        'time_step_hours': 24,
-        'start_time':      '2024-01-01T00:00:00',
-        'res':             0.05,
-        'nc_filename':     'adriatico_oil_20240101_365d.nc',
-    },
-}
-
-# ── Tools4MSP dynamic scenarios ───────────────────────────────────────────────
+# ── Tools4MSP area list ───────────────────────────────────────────────────────
 
 T4MSP_AREAS_URL = 'https://api.tools4msp.eu/api/v2/domainareas/?format=json'
 T4MSP_AREA_URL  = 'https://api.tools4msp.eu/api/v2/domainareas/{area_id}/?format=json'
-
-T4MSP_DEFAULT_PARAMS = {
-    'duration_days':   365,
-    'time_step_hours': 24,
-    'start_time':      '2024-01-01T00:00:00',
-    'res':             0.05,
-}
-
-T4MSP_PNUM = {
-    'generic': 100000,
-    'plastic':  40000,
-    'oil':      20000,
-}
 
 _T4MSP_CACHE: dict = {'areas': None, 'ts': 0.0}
 _T4MSP_CACHE_TTL   = 3600  # seconds TODO
@@ -144,32 +86,9 @@ def ensure_t4msp_shapefile(area_id: int) -> str:
     return shp_path
 
 
-def get_t4msp_scenarios() -> dict:
-    """Ritorna un dict scenario_id → config per tutte le aree T4MSP × tipi di pressione."""
-    areas  = _fetch_t4msp_areas()
-    result = {}
-    for area in areas:
-        area_id    = area['id']
-        area_label = area['label']
-        for pressure, pm in PRESSURE_MODELS.items():
-            sid = f't4msp_{area_id}_{pressure}'
-            result[sid] = {
-                **T4MSP_DEFAULT_PARAMS,
-                'pnum':            T4MSP_PNUM[pressure],
-                'pressure':        pressure,
-                'label_it':        f'{area_label} – {pm["label_it"]} 2024',
-                'label_en':        f'{area_label} – {pm["label_en"]} 2024',
-                'area_it':         area_label,
-                'area_en':         area_label,
-                'nc_filename':     f't4msp_{area_id}_{pressure}_20240101_365d.nc',
-                't4msp_area_id':   area_id,
-                'source':          't4msp',
-            }
-    return result
-
-
 from processes.logging_utils import setup_logger
 logger = setup_logger('pmar_process', 'pmar', 'pmar.log')
+
 
 PRESSURE_MODELS = {
     'generic': {
@@ -313,17 +232,16 @@ class PMARProcessor(BaseProcessor):
 
             # ── Scenario mode: usa traiettorie pre-calcolate ──────────────
             if scenario_id:
-                if scenario_id in SCENARIOS:
-                    sc       = SCENARIOS[scenario_id]
-                    shp_path = sc['shapefile']
-                elif scenario_id.startswith('t4msp_'):
-                    t4msp_sc = get_t4msp_scenarios()
-                    if scenario_id not in t4msp_sc:
-                        raise ProcessorExecuteError(f'Scenario T4MSP sconosciuto: {scenario_id!r}')
-                    sc       = t4msp_sc[scenario_id]
-                    shp_path = ensure_t4msp_shapefile(sc['t4msp_area_id'])
-                else:
+                if not scenario_id.startswith('custom_'):
                     raise ProcessorExecuteError(f'Scenario sconosciuto: {scenario_id!r}')
+                meta_path = os.path.join(SCENARIOS_DIR, f'{scenario_id}.json')
+                if not os.path.exists(meta_path):
+                    raise ProcessorExecuteError(f'Scenario custom non trovato: {scenario_id!r}')
+                with open(meta_path) as f:
+                    sc = json.load(f)
+                shp_path = sc['shapefile']
+                if not os.path.exists(shp_path):
+                    raise ProcessorExecuteError(f'Shapefile per {scenario_id!r} non trovato.')
 
                 nc_output = os.path.join(SCENARIOS_DIR, sc['nc_filename'])
                 if not os.path.exists(nc_output):
@@ -533,6 +451,10 @@ class PMARProcessor(BaseProcessor):
                     f'use_source={use_source}, weighted={use_weighted}, bounds={map_bounds}'
                 )
 
+                seeding_geojson = json.loads(
+                    gdf.simplify(0.005, preserve_topology=True).to_json()
+                )
+
                 result = {
                     'type':           'raster',
                     'raster_values':  np.round(arr_clean, 3).tolist(),
@@ -555,6 +477,7 @@ class PMARProcessor(BaseProcessor):
                     'end_time':       end_time.strftime('%Y%m%d'),
                     'pnum':           pnum,
                     'scenario_id':    scenario_id,
+                    'seeding_geojson': seeding_geojson,
                 }
                 if use_geojson:
                     if use_source == 'windfarms':

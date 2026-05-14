@@ -1,8 +1,10 @@
+import glob
+import json
 import os
 
 from pygeoapi.process.base import BaseProcessor
 
-from processes.PMARProcess import SCENARIOS, SCENARIOS_DIR, get_t4msp_scenarios
+from processes.PMARProcess import SCENARIOS_DIR, _fetch_t4msp_areas
 from processes.logging_utils import setup_logger
 
 logger = setup_logger('scenario_status_process', 'pmar', 'scenario_status.log')
@@ -32,44 +34,42 @@ class ScenarioStatusProcessor(BaseProcessor):
         super().__init__(processor_def, PROCESS_METADATA)
 
     def execute(self, data):
-        result = {}
+        scenarios = {}
 
-        def _build_entry(sc, source, extra=None):
-            nc_path = os.path.join(SCENARIOS_DIR, sc['nc_filename'])
-            if os.path.exists(nc_path):
-                nc_size_mb = round(os.path.getsize(nc_path) / (1024 * 1024), 2)
-                computed   = True
-            else:
-                nc_size_mb = None
-                computed   = False
-            entry = {
-                'computed':        computed,
-                'nc_size_mb':      nc_size_mb,
-                'label_it':        sc['label_it'],
-                'label_en':        sc['label_en'],
-                'area_it':         sc['area_it'],
-                'area_en':         sc['area_en'],
-                'pressure':        sc['pressure'],
-                'pnum':            sc['pnum'],
-                'duration_days':   sc['duration_days'],
-                'time_step_hours': sc['time_step_hours'],
-                'start_time':      sc['start_time'][:10],
-                'res':             sc['res'],
-                'source':          source,
-            }
-            if extra:
-                entry.update(extra)
-            return entry
+        for meta_file in sorted(glob.glob(os.path.join(SCENARIOS_DIR, 'custom_*.json'))):
+            try:
+                with open(meta_file) as f:
+                    sc = json.load(f)
+                sid     = sc.get('scenario_id', os.path.basename(meta_file).replace('.json', ''))
+                nc_path = os.path.join(SCENARIOS_DIR, sc['nc_filename'])
+                if os.path.exists(nc_path):
+                    nc_size_mb = round(os.path.getsize(nc_path) / (1024 * 1024), 2)
+                    computed   = True
+                else:
+                    nc_size_mb = None
+                    computed   = False
+                scenarios[sid] = {
+                    'computed':        computed,
+                    'nc_size_mb':      nc_size_mb,
+                    'label_it':        sc['label_it'],
+                    'label_en':        sc['label_en'],
+                    'area_it':         sc.get('area_it', ''),
+                    'area_en':         sc.get('area_en', ''),
+                    'pressure':        sc['pressure'],
+                    'pnum':            sc['pnum'],
+                    'duration_days':   sc['duration_days'],
+                    'time_step_hours': sc['time_step_hours'],
+                    'start_time':      sc['start_time'][:10],
+                    'res':             sc['res'],
+                    'source':          'custom',
+                }
+            except Exception as e:
+                logger.warning(f'[ScenarioStatus] Impossibile caricare {meta_file}: {e}')
 
-        for scenario_id, sc in SCENARIOS.items():
-            result[scenario_id] = _build_entry(sc, 'static')
+        t4msp_areas = [{'id': a['id'], 'label': a['label']} for a in _fetch_t4msp_areas()]
 
-        for scenario_id, sc in get_t4msp_scenarios().items():
-            result[scenario_id] = _build_entry(sc, 't4msp', {'t4msp_area_id': sc['t4msp_area_id']})
-
-        logger.info(f'[ScenarioStatus] Totale scenari: {len(result)} '
-                    f'(static={len(SCENARIOS)}, t4msp={len(result)-len(SCENARIOS)})')
-        return 'application/json', result
+        logger.info(f'[ScenarioStatus] Scenari custom: {len(scenarios)}, aree T4MSP: {len(t4msp_areas)}')
+        return 'application/json', {'scenarios': scenarios, 't4msp_areas': t4msp_areas}
 
     def __repr__(self):
         return '<ScenarioStatusProcessor>'
