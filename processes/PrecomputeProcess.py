@@ -17,7 +17,11 @@ from processes.PMARProcess import (
     SCENARIOS_DIR, SCENARIOS_SHP_DIR, PRESSURE_MODELS,
     ensure_t4msp_shapefile, _fetch_t4msp_areas,
 )
-from processes.OpenDriftProcess import _get_forcing_file, _get_wind_file, _build_model, OUT_DIR
+from processes.OpenDriftProcess import (
+    _get_forcing_file, _get_wind_file, _get_waves_file, _get_thermo_file,
+    _get_max_depth_for_area,
+    _build_model, OUT_DIR,
+)
 from processes.logging_utils import setup_logger
 
 logger = setup_logger('precompute_process', 'pmar', 'precompute_process.log')
@@ -225,10 +229,20 @@ def _run_scenario(scenario_id, sc, shp_path):
 
     logger.info(f'[{scenario_id}] bounds={bounds.tolist()}, cmems_margin={cmems_margin}°')
 
-    pm_cfg = PRESSURE_MODELS[pressure]
+    pm_cfg    = PRESSURE_MODELS[pressure]
+    max_depth = pm_cfg.get('max_depth', 0.5)
+    if pm_cfg.get('needs_vertical'):
+        dynamic = _get_max_depth_for_area(
+            bounds[0], bounds[2], bounds[1], bounds[3], cmems_margin
+        )
+        if dynamic is not None:
+            max_depth = dynamic
+            logger.info(f'[{scenario_id}] Profondità dinamica: {max_depth:.0f} m')
+        else:
+            logger.warning(f'[{scenario_id}] Batimetria non disponibile, uso default {max_depth:.0f} m')
     forcing_paths = [_get_forcing_file(
         bounds[0], bounds[2], bounds[1], bounds[3],
-        start_time, end_time, time_step_hours, pm_cfg.get('max_depth', 0.5), cmems_margin,
+        start_time, end_time, time_step_hours, max_depth, cmems_margin,
     )]
     if pm_cfg['needs_wind']:
         wind_path = _get_wind_file(bounds[0], bounds[2], bounds[1], bounds[3], start_time, end_time, cmems_margin)
@@ -236,6 +250,18 @@ def _run_scenario(scenario_id, sc, shp_path):
             forcing_paths.append(wind_path)
         else:
             logger.warning(f'[{scenario_id}] Vento non disponibile, solo correnti')
+    if pm_cfg.get('needs_waves'):
+        waves_path = _get_waves_file(bounds[0], bounds[2], bounds[1], bounds[3], start_time, end_time, cmems_margin)
+        if waves_path:
+            forcing_paths.append(waves_path)
+        else:
+            logger.warning(f'[{scenario_id}] Onde non disponibili: deriva di Stokes parametrizzata dal vento')
+    if pm_cfg.get('needs_thermo'):
+        thermo_path = _get_thermo_file(bounds[0], bounds[2], bounds[1], bounds[3], start_time, end_time, cmems_margin)
+        if thermo_path:
+            forcing_paths.append(thermo_path)
+        else:
+            logger.warning(f'[{scenario_id}] T/S non disponibili: weathering con valori costanti')
 
     logger.info(f'[{scenario_id}] Forcing files: {forcing_paths}')
 

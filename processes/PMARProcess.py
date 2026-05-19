@@ -19,7 +19,11 @@ import geopandas as gpd
 from datetime import datetime, timedelta
 
 from pygeoapi.process.base import BaseProcessor, ProcessorExecuteError
-from processes.OpenDriftProcess import _get_forcing_file, _get_wind_file, _build_model, _ROOT, _LOG_DIR, OUT_DIR, CACHE_DIR
+from processes.OpenDriftProcess import (
+    _get_forcing_file, _get_wind_file, _get_waves_file, _get_thermo_file,
+    _get_max_depth_for_area,
+    _build_model, _ROOT, _LOG_DIR, OUT_DIR, CACHE_DIR,
+)
 
 EMODNET_CACHE_DIR = os.path.join(CACHE_DIR, 'emodnet')
 os.makedirs(EMODNET_CACHE_DIR, exist_ok=True)
@@ -104,6 +108,7 @@ PRESSURE_MODELS = {
         'module':         'opendrift.models.plastdrift',
         'class':          'PlastDrift',
         'needs_wind':     True,
+        'needs_waves':    True,
         'needs_vertical': False,
         'max_depth':      0.5,
         'label_it':       'Plastica',
@@ -113,10 +118,21 @@ PRESSURE_MODELS = {
         'module':         'opendrift.models.openoil',
         'class':          'OpenOil',
         'needs_wind':     True,
+        'needs_waves':    True,
+        'needs_thermo':   True,
         'needs_vertical': True,
         'max_depth':      50.0,
         'label_it':       'Idrocarburi',
         'label_en':       'Hydrocarbons',
+    },
+    'larvae': {
+        'module':         'opendrift.models.larvalfish',
+        'class':          'LarvalFish',
+        'needs_wind':     False,
+        'needs_vertical': True,
+        'max_depth':      200.0,
+        'label_it':       'Larve di pesce',
+        'label_en':       'Fish larvae',
     },
 }
 
@@ -144,7 +160,7 @@ PROCESS_METADATA = {
         },
         'pressure': {
             'title': 'Pressure type',
-            'description': 'One of: generic (OceanDrift), plastic (PlastDrift), oil (OpenOil).',
+            'description': 'One of: generic (OceanDrift), plastic (PlastDrift), oil (OpenOil), larvae (LarvalFish).',
             'schema': {'type': 'string', 'default': 'generic'},
             'minOccurs': 0, 'maxOccurs': 1,
         },
@@ -309,10 +325,18 @@ class PMARProcessor(BaseProcessor):
                     f'start={start_time.isoformat()}, bounds={bounds.tolist()}'
                 )
 
-                pm_cfg = PRESSURE_MODELS[pressure]
+                pm_cfg    = PRESSURE_MODELS[pressure]
+                max_depth = pm_cfg.get('max_depth', 0.5)
+                if pm_cfg.get('needs_vertical'):
+                    dynamic = _get_max_depth_for_area(bounds[0], bounds[2], bounds[1], bounds[3])
+                    if dynamic is not None:
+                        max_depth = dynamic
+                        logger.info(f'Profondità dinamica per {pressure}: {max_depth:.0f} m')
+                    else:
+                        logger.warning(f'Batimetria non disponibile per {pressure}, uso default {max_depth:.0f} m')
                 forcing_paths = [_get_forcing_file(
                     bounds[0], bounds[2], bounds[1], bounds[3],
-                    start_time, end_time, time_step_hours, pm_cfg.get('max_depth', 0.5),
+                    start_time, end_time, time_step_hours, max_depth,
                 )]
                 if pm_cfg['needs_wind']:
                     wind_path = _get_wind_file(bounds[0], bounds[2], bounds[1], bounds[3], start_time, end_time)
@@ -320,6 +344,18 @@ class PMARProcessor(BaseProcessor):
                         forcing_paths.append(wind_path)
                     else:
                         logger.warning(f'Vento non disponibile per {pressure}: simulazione solo a correnti')
+                if pm_cfg.get('needs_waves'):
+                    waves_path = _get_waves_file(bounds[0], bounds[2], bounds[1], bounds[3], start_time, end_time)
+                    if waves_path:
+                        forcing_paths.append(waves_path)
+                    else:
+                        logger.warning(f'Onde non disponibili per {pressure}: deriva di Stokes parametrizzata dal vento')
+                if pm_cfg.get('needs_thermo'):
+                    thermo_path = _get_thermo_file(bounds[0], bounds[2], bounds[1], bounds[3], start_time, end_time)
+                    if thermo_path:
+                        forcing_paths.append(thermo_path)
+                    else:
+                        logger.warning(f'T/S non disponibili per {pressure}: weathering con valori costanti')
 
                 logger.debug(f'Forcing files: {forcing_paths}')
 

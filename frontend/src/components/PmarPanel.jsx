@@ -6,6 +6,7 @@ const PRESSURES = [
   { key: 'generic', icon: '🌊', labelKey: 'generic' },
   { key: 'plastic', icon: '🧴', labelKey: 'plastic' },
   { key: 'oil',     icon: '🛢️', labelKey: 'oil'     },
+  { key: 'larvae',  icon: '🐟', labelKey: 'larvae'  },
 ]
 
 const USE_SOURCES = [
@@ -250,7 +251,7 @@ export default function PmarPanel({
     !!scenarioId && scenarioStatuses[scenarioId]?.status === 'ready' &&
     (useSource !== 'geotiff' || !!geotiffB64 || !!geotiffUrl.trim())
 
-  const ncBytesPerStep  = pressure === 'oil' ? 160 : pressure === 'plastic' ? 60 : 40
+  const ncBytesPerStep  = pressure === 'oil' ? 160 : pressure === 'larvae' ? 120 : pressure === 'plastic' ? 60 : 40
   const stepsPerDay     = 24 / timeStepHours
   const ncEstimateBytes = parseInt(pnum || 0) * parseInt(durationDays || 0) * stepsPerDay * ncBytesPerStep
   function formatNcSize(bytes) {

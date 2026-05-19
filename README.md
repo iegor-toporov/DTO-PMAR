@@ -19,7 +19,11 @@ demo_5/
 ├── frontend/
 │   └── src/                             # React + Vite SPA
 ├── cache/
-│   ├── *.nc                             # Downloaded CMEMS NetCDF files (auto-managed)
+│   ├── cmems_*_cur_*.nc                 # Ocean currents
+│   ├── cmems_*_wind_*.nc                # Wind
+│   ├── cmems_*_wav_*.nc                 # Waves (Stokes drift)
+│   ├── cmems_*_tem_*.nc                 # Temperature & salinity
+│   ├── cmems_*_bathy_*.nc               # Bathymetry (geographic cache, no time key)
 │   └── emodnet/                         # EMODnet WFS responses (pickle, 7-day TTL)
 ├── scenarios/
 │   ├── custom_<id>.nc                   # Precomputed trajectory files
@@ -98,12 +102,14 @@ The built files go to `frontend/dist/` and are served as static assets by pygeoa
 
 ### Drift models
 
-| Key | Description | Wind forcing |
-|---|---|---|
-| `OceanDrift` | Passive tracer — surface currents only | No |
-| `PlastDrift` | Plastic debris — Stokes drift + wind drag | Yes |
-| `LarvalFish` | Fish larvae/eggs — vertical buoyancy + turbulent mixing | No |
-| `OpenOil` | Hydrocarbons — evaporation, emulsification, dispersion | Yes |
+| Key | Description | Wind | Waves | T/S | Vertical |
+|---|---|---|---|---|---|
+| `OceanDrift` | Passive tracer — surface currents only | — | — | — | — |
+| `PlastDrift` | Plastic debris — Stokes drift + wind drag | Yes | Yes | — | — |
+| `LarvalFish` | Fish larvae/eggs — vertical buoyancy + turbulent mixing | — | — | — | Yes |
+| `OpenOil` | Hydrocarbons — evaporation, emulsification, dispersion | Yes | Yes | Yes | Yes |
+
+Models marked **Vertical** use dynamic CMEMS depth: the seafloor depth (`deptho`) is downloaded once per area and cached; `maximum_depth = max(deptho) + 10 m` is used for the currents download instead of a fixed value.
 
 ### Inputs
 
@@ -145,7 +151,7 @@ The user defines a seeding area and simulation parameters, then triggers a **pre
 |---|---|---|
 | Title | Free text | Auto-generated from pressure + date |
 | Description | Free text | — |
-| Pressure type | `generic`, `plastic`, `oil` | `generic` |
+| Pressure type | `generic`, `plastic`, `oil`, `larvae` | `generic` |
 | Start date | ISO 8601 date | 10 days ago |
 | Duration | 1–730 days | 30 |
 | Particles | 10–100 000 | 1 000 |
@@ -188,7 +194,7 @@ Runs an OpenDrift simulation, saves the trajectory as `scenarios/custom_<id>.nc`
 | `geojson` | GeoJSON string of the seeding area |
 | `shapefile_b64` | Base64-encoded shapefile ZIP (alternative to GeoJSON) |
 | `t4msp_area_id` | Integer ID of a Tools4MSP domain area (alternative to GeoJSON) |
-| `pressure` | `generic`, `plastic`, or `oil` |
+| `pressure` | `generic`, `plastic`, `oil`, or `larvae` |
 | `start_time` | ISO 8601 datetime |
 | `duration_days` | Duration in days |
 | `pnum` | Number of particles (max 100 000) |
@@ -277,9 +283,13 @@ Runs PMAR density analysis on a precomputed scenario trajectory.
   "vmin": 1.2,
   "vmax": 847.0,
   "colorbar_b64": "...",
+  "colorbar_light_b64": "...",
+  "sum_raster_values": [[...]], "sum_colorbar_b64": "...", "sum_colorbar_light_b64": "...", "sum_vmin": 0.0, "sum_vmax": 1.0,
+  "max_raster_values": [[...]], "max_colorbar_b64": "...", "max_colorbar_light_b64": "...", "max_vmin": 0.0, "max_vmax": 1.0,
+  "q90_raster_values": [[...]], "q90_colorbar_b64": "...", "q90_colorbar_light_b64": "...", "q90_vmin": 0.0, "q90_vmax": 1.0,
   "geotiff_b64": "...",
   "bounds": [[lat_min, lon_min], [lat_max, lon_max]],
-  "pressure": "generic|plastic|oil",
+  "pressure": "generic|plastic|oil|larvae",
   "label_it": "...",
   "label_en": "...",
   "use_source": "none|windfarms|offshore_installations|geotiff",
@@ -295,6 +305,10 @@ Runs PMAR density analysis on a precomputed scenario trajectory.
 ```
 
 `seeding_geojson` is always included and contains the simplified seeding area polygon displayed on the map. `windfarms_geojson` and `offshore_geojson` are included only when the respective source layer was used.
+
+The `sum_*`, `max_*`, and `q90_*` fields are present when the PMAR library's `get_indicators()` call succeeds. Each provides an alternative raster and its own colorbar PNGs. The density raster (no prefix) is always present.
+
+`colorbar_b64` uses white text (for dark map theme); `colorbar_light_b64` uses dark text (for light map theme). Both are always returned for the density raster and for each indicator.
 
 ### Spatial domains
 
@@ -314,6 +328,8 @@ Setting `cmems_margin` large enough to cover expected particle drift is importan
 - vmin = 2nd percentile of positive values, vmax = 98th percentile (auto-adaptive per run)
 - Transparent cells for value ≤ 0 or NaN
 - Rendered as a canvas overlay in the browser (not a server-side PNG)
+- Hovering over a cell shows its value, coordinates, and a stable **cell ID** in the format `{lon}E_{lat}N` (rounded to grid resolution) — useful for cross-run comparisons
+- The colorbar PNG is chosen at render time based on the current map theme (dark text for light theme, white text for dark theme)
 
 ### GeoTIFF structure
 
@@ -355,17 +371,45 @@ Both accept `lon_min`, `lat_min`, `lon_max`, `lat_max` as inputs.
 
 ## CMEMS data
 
-Ocean currents are downloaded automatically from the Copernicus Marine Service:
+Ocean currents, wind, waves, temperature/salinity, and bathymetry are downloaded automatically from the Copernicus Marine Service and cached in `cache/`. All files are keyed on the seeding area bounding box, CMEMS margin, start date, and duration. The download bbox is `seeding_bounds ± cmems_margin`.
 
-- **Primary:** `cmems_mod_med_phy-cur_anfc_0.042deg_PT1H-m` (Mediterranean, hourly)
-- **Fallback:** `cmems_mod_glo_phy-cur_anfc_0.083deg_P1D-m` (global, daily)
+**Currents** (all models):
 
-Wind data (for `PlastDrift`, `OpenOil`, and PMAR plastic/oil pressure):
+| Priority | Dataset | Coverage |
+|---|---|---|
+| 1 | `cmems_mod_med_phy-cur_anfc_0.042deg_PT1H-m` | Mediterranean, hourly |
+| 2 | `cmems_mod_glo_phy-cur_anfc_0.083deg_P1D-m` | Global, daily |
+| 3 | `cmems_mod_glo_phy_my_0.083deg_P1D-m` | Global, daily (reanalysis) |
 
-- **Primary:** `cmems_obs-wind_med_phy_nrt_l4_0.125deg_PT1H` (Mediterranean)
-- **Fallback:** `cmems_obs-wind_glo_phy_nrt_l4_0.125deg_PT1H` (global)
+**Wind** (`PlastDrift`, `OpenOil`):
 
-Files are cached in `cache/` keyed on the seeding area bounding box, CMEMS margin, start date, and duration. The download bbox is computed as `seeding_bounds ± cmems_margin`, so the coverage scales correctly with the size of the seeding area.
+| Priority | Dataset |
+|---|---|
+| 1 | `cmems_obs-wind_med_phy_nrt_l4_0.125deg_PT1H` |
+| 2 | `cmems_obs-wind_glo_phy_nrt_l4_0.125deg_PT1H` |
+| 3 | `cmems_obs-wind_glo_phy_my_l4_0.125deg_PT1H` |
+
+**Waves — Stokes drift** (`PlastDrift`, `OpenOil`):
+
+| Priority | Dataset |
+|---|---|
+| 1 | `cmems_mod_med_wav_anfc_4.2km_PT1H-i` |
+| 2 | `cmems_mod_glo_wav_anfc_0.083deg_PT3H-i` |
+| 3 | `cmems_mod_glo_wav_my_0.2deg_PT3H-i` |
+
+**Temperature & salinity** (`OpenOil` weathering):
+
+| Priority | Dataset | Variables |
+|---|---|---|
+| 1 | `cmems_mod_glo_phy_anfc_0.083deg_P1D-m` | thetao, so |
+| 2 | `cmems_mod_glo_phy_my_0.083deg_P1D-m` | thetao, so |
+| 3–5 | Mediterranean / global temperature-only products | thetao |
+
+**Bathymetry** (`LarvalFish`, `OpenOil` — models with vertical mixing):
+
+The `deptho` (seafloor depth) field is downloaded once per geographic area from a static CMEMS dataset (`cmems_mod_med_phy_anfc_4.2km_static` or global equivalent) and permanently cached. `maximum_depth` for the currents download is set to `max(deptho) + 10 m` instead of a fixed value, ensuring full water-column coverage in deep areas and avoiding over-downloading in shallow ones. If the bathymetry download fails the fixed default is used as fallback.
+
+Wind and waves downloads are non-blocking: if the dataset is unavailable the simulation continues with currents only (OpenDrift falls back to parametric Stokes drift from wind).
 
 ---
 
@@ -392,6 +436,7 @@ Files are cached in `cache/` keyed on the seeding area bounding box, CMEMS margi
 - Select a saved simulation from the dropdown in the Simulation tab
 - Choose an anthropogenic weighting layer, grid resolution, and study area margin
 - After analysis, a **controls bar** appears at the bottom with:
+  - **Indicator selector**: switch between Density, SUM, MAX, Q90 rasters (shown only when indicators are available)
   - Toggle heatmap overlay
   - Toggle seeding area polygon
   - Toggle wind farms layer
