@@ -450,6 +450,12 @@ Wind and waves downloads are non-blocking: if the dataset is unavailable the sim
 
 ---
 
+## Examples
+
+![PMAR analysis — particle density heatmap using larvae model.](images/example_analysis.png)
+
+---
+
 ## Logging
 
 Each process writes to its own subdirectory under `logs/`. All loggers use `LineRotatingFileHandler` (`processes/logging_utils.py`): the log file is truncated when it exceeds 1000 lines.
