@@ -548,8 +548,16 @@ export default function PmarPanel({
               <div className="draw-hint" style={{ marginTop: 12 }}>{p.hintNoScenario}</div>
             )
           }
+          const areaName = lang === 'it'
+            ? (sc.area_it || p.areaUndefined)
+            : (sc.area_en || p.areaUndefined)
+          const isCustomArea = areaName === 'Area personalizzata' || areaName === 'Custom area'
           return (
             <div className="pmar-scenario-info" style={{ marginTop: 10 }}>
+              <div className="pmar-scenario-info-row">
+                <span>{p.seedAreaName}</span>
+                <span>{isCustomArea ? p.areaUndefined : areaName}</span>
+              </div>
               <div className="pmar-scenario-info-row">
                 <span>{p.sectionPressure}</span>
                 <span>{p.pressures[sc.pressure]}</span>

@@ -362,7 +362,7 @@ class PMARProcessor(BaseProcessor):
             pm = PRESSURE_MODELS[pressure]
             try:
                 pmar_basedir = os.path.join(tmpdir, 'pmar_out')
-                p = PMAR(context=None, pressure=pressure, basedir=pmar_basedir, loglevel=50)
+                p = PMAR(spatial_domain=None, pressure=pressure, basedir=pmar_basedir, loglevel=50)
                 p.ds = xr.open_dataset(nc_output)
 
                 study_area = [
@@ -443,12 +443,21 @@ class PMARProcessor(BaseProcessor):
                     block_size=len(p.ds.time),
                 )
 
-                map_bounds, colorbar_b64, vmin, vmax = _raster_to_png(h)
+                map_bounds, colorbar_dark_b64, colorbar_light_b64, vmin, vmax = _raster_to_png(h)
                 if map_bounds is None:
                     raise ProcessorExecuteError(
                         'Nessuna particella ha attraversato le aree selezionate.'
                     )
                 geotiff_b64 = _histogram_to_geotiff(h)
+
+                indicator_sum = indicator_max = indicator_q90 = None
+                try:
+                    p.get_indicators(res=res, study_area=study_area)
+                    indicator_sum = p.output.get('SUM')
+                    indicator_max = p.output.get('MAX')
+                    indicator_q90 = p.output.get('Q90')
+                except Exception as _ind_err:
+                    logger.warning(f'get_indicators fallito (non bloccante): {_ind_err}')
 
                 x_vals    = h.coords['x'].values
                 y_vals    = h.coords['y'].values
@@ -464,16 +473,17 @@ class PMARProcessor(BaseProcessor):
                 )
 
                 result = {
-                    'type':           'raster',
-                    'raster_values':  np.round(arr_clean, 3).tolist(),
-                    'raster_lon_min': float(x_vals.min()),
-                    'raster_lat_min': float(y_vals.min()),
-                    'raster_res':     float(res),
-                    'raster_nx':      int(len(x_vals)),
-                    'raster_ny':      int(len(y_vals)),
-                    'vmin':           float(vmin),
-                    'vmax':           float(vmax),
-                    'colorbar_b64':   colorbar_b64,
+                    'type':                'raster',
+                    'raster_values':       np.round(arr_clean, 3).tolist(),
+                    'raster_lon_min':      float(x_vals.min()),
+                    'raster_lat_min':      float(y_vals.min()),
+                    'raster_res':          float(res),
+                    'raster_nx':           int(len(x_vals)),
+                    'raster_ny':           int(len(y_vals)),
+                    'vmin':                float(vmin),
+                    'vmax':                float(vmax),
+                    'colorbar_b64':        colorbar_dark_b64,
+                    'colorbar_light_b64':  colorbar_light_b64,
                     'geotiff_b64':    geotiff_b64,
                     'bounds':         map_bounds,
                     'pressure':       pressure,
@@ -492,6 +502,21 @@ class PMARProcessor(BaseProcessor):
                         result['windfarms_geojson'] = use_geojson
                     elif use_source == 'offshore_installations':
                         result['offshore_geojson'] = use_geojson
+
+                for key, da in [('sum', indicator_sum), ('max', indicator_max), ('q90', indicator_q90)]:
+                    if da is not None:
+                        ind = _serialize_indicator(da, res)
+                        if ind:
+                            result[f'{key}_raster_values']       = ind['raster_values']
+                            result[f'{key}_raster_lon_min']      = ind['raster_lon_min']
+                            result[f'{key}_raster_lat_min']      = ind['raster_lat_min']
+                            result[f'{key}_raster_res']          = ind['raster_res']
+                            result[f'{key}_raster_nx']           = ind['raster_nx']
+                            result[f'{key}_raster_ny']           = ind['raster_ny']
+                            result[f'{key}_colorbar_b64']        = ind['colorbar_b64']
+                            result[f'{key}_colorbar_light_b64']  = ind['colorbar_light_b64']
+                            result[f'{key}_vmin']                = ind['vmin']
+                            result[f'{key}_vmax']                = ind['vmax']
 
                 return 'application/json', result
 
@@ -580,19 +605,42 @@ def _histogram_to_geotiff(h):
     return base64.b64encode(buf.getvalue()).decode('utf-8')
 
 
+def _make_colorbar_png(norm, cmap, text_color):
+    """Genera un PNG verticale della colorbar con il colore testo specificato."""
+    import matplotlib.ticker as ticker
+    fig_cb = plt.figure(figsize=(0.65, 2.8), dpi=150)
+    cb_ax  = fig_cb.add_axes([0.18, 0.06, 0.38, 0.88])
+    sm     = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
+    sm.set_array([])
+    cb = fig_cb.colorbar(sm, cax=cb_ax)
+    cb.ax.tick_params(colors=text_color, labelsize=6.5, length=3, width=0.5, pad=2)
+    cb.outline.set_edgecolor(text_color)
+    cb.outline.set_linewidth(0.5)
+    cb.outline.set_alpha(0.45)
+    cb.ax.yaxis.set_major_formatter(ticker.FuncFormatter(lambda x, _: f'{x:.3g}'))
+    for lbl in cb.ax.get_yticklabels():
+        lbl.set_color(text_color)
+        lbl.set_fontsize(6.5)
+    buf = io.BytesIO()
+    fig_cb.savefig(buf, format='png', dpi=150, transparent=True,
+                   bbox_inches='tight', pad_inches=0.05)
+    plt.close(fig_cb)
+    buf.seek(0)
+    return base64.b64encode(buf.getvalue()).decode('utf-8')
+
+
 def _raster_to_png(h):
     """
-    Compute colormap bounds (vmin/vmax), generate a vertical colorbar PNG,
-    and return Leaflet-format cell-edge bounds. The raster is rendered client-side.
-    Returns (map_bounds, colorbar_b64, vmin, vmax).
+    Compute colormap bounds (vmin/vmax), generate vertical colorbar PNGs
+    (one for dark theme, one for light theme), and return Leaflet-format
+    cell-edge bounds.
+    Returns (map_bounds, colorbar_dark_b64, colorbar_light_b64, vmin, vmax).
     """
-    import matplotlib.ticker as ticker
-
     arr        = h.values.astype(float)
     valid_mask = (arr > 0) & np.isfinite(arr)
 
     if not valid_mask.any():
-        return None, '', 0.0, 0.0
+        return None, '', '', 0.0, 0.0
 
     valid = arr[valid_mask]
     vmin  = max(float(np.percentile(valid, 2)), 1e-12)
@@ -607,29 +655,8 @@ def _raster_to_png(h):
 
     cmap = plt.get_cmap('Spectral_r').copy()
 
-    # ── Colorbar ─────────────────────────────────────────────────────────────
-    fig_cb = plt.figure(figsize=(0.65, 2.8), dpi=150)
-    cb_ax  = fig_cb.add_axes([0.18, 0.06, 0.38, 0.88])
-    sm     = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
-    sm.set_array([])
-    cb = fig_cb.colorbar(sm, cax=cb_ax)
-    cb.ax.tick_params(colors='white', labelsize=6.5, length=3, width=0.5, pad=2)
-    cb.outline.set_edgecolor('white')
-    cb.outline.set_linewidth(0.5)
-    cb.outline.set_alpha(0.5)
-    cb.ax.yaxis.set_major_formatter(
-        ticker.FuncFormatter(lambda x, _: f'{x:.3g}')
-    )
-    for lbl in cb.ax.get_yticklabels():
-        lbl.set_color('white')
-        lbl.set_fontsize(6.5)
-
-    buf_cb = io.BytesIO()
-    fig_cb.savefig(buf_cb, format='png', dpi=150, transparent=True,
-                   bbox_inches='tight', pad_inches=0.05)
-    plt.close(fig_cb)
-    buf_cb.seek(0)
-    colorbar_b64 = base64.b64encode(buf_cb.getvalue()).decode('utf-8')
+    colorbar_dark_b64  = _make_colorbar_png(norm, cmap, 'white')
+    colorbar_light_b64 = _make_colorbar_png(norm, cmap, '#1e293b')
 
     # ── Bounds (cell edges, not centres) ─────────────────────────────────────
     x_vals = h.coords['x'].values
@@ -641,7 +668,38 @@ def _raster_to_png(h):
         [float(y_vals.max()) + dy / 2, float(x_vals.max()) + dx / 2],
     ]
 
-    return map_bounds, colorbar_b64, vmin, vmax
+    return map_bounds, colorbar_dark_b64, colorbar_light_b64, vmin, vmax
+
+
+def _serialize_indicator(da, res):
+    """Serializza una DataArray indicatore (SUM/MAX/Q90) al formato raster JSON."""
+    rename = {}
+    for src, dst in [('x_c', 'x'), ('y_c', 'y'), ('lon', 'x'), ('lat', 'y'),
+                     ('longitude', 'x'), ('latitude', 'y')]:
+        if src in da.coords and dst not in da.dims:
+            rename[src] = dst
+    if rename:
+        da = da.rename(rename)
+    if 'x' not in da.coords or 'y' not in da.coords:
+        return None
+    map_bounds, colorbar_dark_b64, colorbar_light_b64, vmin, vmax = _raster_to_png(da)
+    if map_bounds is None:
+        return None
+    x_vals    = da.coords['x'].values
+    y_vals    = da.coords['y'].values
+    arr_clean = np.where(np.isfinite(da.values) & (da.values > 0), da.values, 0.0)
+    return {
+        'raster_values':      np.round(arr_clean, 3).tolist(),
+        'raster_lon_min':     float(x_vals.min()),
+        'raster_lat_min':     float(y_vals.min()),
+        'raster_res':         float(res),
+        'raster_nx':          int(len(x_vals)),
+        'raster_ny':          int(len(y_vals)),
+        'colorbar_b64':       colorbar_dark_b64,
+        'colorbar_light_b64': colorbar_light_b64,
+        'vmin':               float(vmin),
+        'vmax':               float(vmax),
+    }
 
 
 def _fetch_windfarms(study_area, cache_dir):

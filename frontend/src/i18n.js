@@ -110,6 +110,10 @@ export const translations = {
       downloadRaster:      'Scarica raster',
       colorbarLabel:       'Passaggi / cella',
       tooltipPassages:     'passaggi',
+      indicatorDensity:    'Densità',
+      indicatorSum:        'SUM',
+      indicatorMax:        'MAX',
+      indicatorQ90:        'Q90',
     },
 
     status: {
@@ -247,6 +251,10 @@ export const translations = {
       downloadRaster:      'Download raster',
       colorbarLabel:       'Passages / cell',
       tooltipPassages:     'passages',
+      indicatorDensity:    'Density',
+      indicatorSum:        'SUM',
+      indicatorMax:        'MAX',
+      indicatorQ90:        'Q90',
     },
 
     status: {

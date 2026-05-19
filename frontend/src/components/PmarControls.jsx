@@ -1,6 +1,13 @@
 import { useLang } from '../LanguageContext'
 import './PmarControls.css'
 
+const INDICATORS = [
+  { key: 'density', labelKey: 'indicatorDensity' },
+  { key: 'sum',     labelKey: 'indicatorSum' },
+  { key: 'max',     labelKey: 'indicatorMax' },
+  { key: 'q90',     labelKey: 'indicatorQ90' },
+]
+
 export default function PmarControls({
   showPmarRaster,
   onTogglePmarRaster,
@@ -14,6 +21,9 @@ export default function PmarControls({
   hasOffshoreInstallations,
   onDownloadPmar,
   elevated,
+  activeIndicator,
+  onIndicatorChange,
+  hasIndicators,
 }) {
   const { t } = useLang()
   const c = t.pmarControls
@@ -21,6 +31,20 @@ export default function PmarControls({
   return (
     <div className={`pmar-controls${elevated ? ' elevated' : ''}`}>
       <span className="pmar-controls-label">PMAR</span>
+
+      {hasIndicators && (
+        <div className="pmar-indicator-selector">
+          {INDICATORS.map(({ key, labelKey }) => (
+            <button
+              key={key}
+              className={`pmar-indicator-btn${activeIndicator === key ? ' active' : ''}`}
+              onClick={() => onIndicatorChange(key)}
+            >
+              {c[labelKey]}
+            </button>
+          ))}
+        </div>
+      )}
 
       <button
         className={`pmar-toggle-btn${showPmarRaster ? ' active' : ''}`}

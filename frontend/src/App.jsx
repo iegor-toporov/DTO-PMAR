@@ -373,9 +373,14 @@ function PmarLayer({ pmarData, visible, passagesLabel }) {
           const latC = (raster_lat_min + row * raster_res).toFixed(3)
           const lonC = (raster_lon_min + col * raster_res).toFixed(3)
           const dispVal = val >= 1 ? Math.round(val) : val.toFixed(3)
+          const decimals = Math.max(0, Math.ceil(-Math.log10(raster_res)) + 1)
+          const latID = (raster_lat_min + row * raster_res).toFixed(decimals)
+          const lonID = (raster_lon_min + col * raster_res).toFixed(decimals)
+          const cellId = `${lonID}E_${latID}N`
           tooltip.innerHTML =
             `<b>${dispVal}</b> ${labelRef.current}` +
-            `<br><span>${latC}° N · ${lonC}° E</span>`
+            `<br><span>${latC}° N · ${lonC}° E</span>` +
+            `<br><span class="pmar-cell-id">ID: ${cellId}</span>`
           tooltip.style.display = 'block'
           tooltip.style.left = (e.containerPoint.x + 14) + 'px'
           tooltip.style.top  = (e.containerPoint.y - 44) + 'px'
@@ -495,6 +500,7 @@ export default function App() {
   const [pmarErrorMsg,    setPmarErrorMsg]    = useState(null)
   const [showPmarRaster,  setShowPmarRaster]  = useState(true)
   const [showWindFarms,   setShowWindFarms]   = useState(true)
+  const [activeIndicator, setActiveIndicator] = useState('density')
 
   // Use-layer state (lifted from PmarPanel)
   const [useSource,        setUseSource]        = useState('none')
@@ -734,6 +740,7 @@ export default function App() {
 
       const label = lang === 'it' ? data.label_it : data.label_en
       setPmarData(data)
+      setActiveIndicator('density')
       setPmarStatus(`✓ PMAR — ${label}`)
       setPmarStatusType('ok')
 
@@ -748,6 +755,27 @@ export default function App() {
       setPmarStatusType('error')
     } finally {
       setPmarLoading(false)
+    }
+  }
+
+  // ── Active indicator raster ────────────────────────────────────────────────
+  function getActivePmarData(data, indicator) {
+    if (!data) return null
+    if (!indicator || indicator === 'density') return data
+    const k = indicator
+    if (!data[`${k}_raster_values`]) return data
+    return {
+      ...data,
+      raster_values:       data[`${k}_raster_values`],
+      raster_lon_min:      data[`${k}_raster_lon_min`],
+      raster_lat_min:      data[`${k}_raster_lat_min`],
+      raster_res:          data[`${k}_raster_res`],
+      raster_nx:           data[`${k}_raster_nx`],
+      raster_ny:           data[`${k}_raster_ny`],
+      colorbar_b64:        data[`${k}_colorbar_b64`],
+      colorbar_light_b64:  data[`${k}_colorbar_light_b64`],
+      vmin:                data[`${k}_vmin`],
+      vmax:                data[`${k}_vmax`],
     }
   }
 
@@ -783,7 +811,7 @@ export default function App() {
           maxZoom={19}
         />
         <SimLayer simData={simData} currentStep={currentStep} />
-        <PmarLayer pmarData={pmarData} visible={showPmarRaster} passagesLabel={t.pmarControls.tooltipPassages} />
+        <PmarLayer pmarData={getActivePmarData(pmarData, activeIndicator)} visible={showPmarRaster} passagesLabel={t.pmarControls.tooltipPassages} />
         <SeedingAreaLayer geojson={pmarData?.seeding_geojson ?? null} visible={showSeedShape} />
         <WindFarmsLayer geojson={windfarmsGeoJSON} visible={showWindFarms} />
         <OffshoreInstallationsLayer geojson={offshoreGeoJSON} visible={showOffshoreInstallations} />
@@ -828,16 +856,18 @@ export default function App() {
         offshoreEmpty={offshoreEmpty}
       />
 
-      {pmarData?.colorbar_b64 && showPmarRaster && (
-        <div className="pmar-colorbar">
-          <span className="pmar-colorbar-label">{t.pmarControls.colorbarLabel}</span>
-          <img
-            src={`data:image/png;base64,${pmarData.colorbar_b64}`}
-            alt="colorbar"
-            className="pmar-colorbar-img"
-          />
-        </div>
-      )}
+      {pmarData && showPmarRaster && (() => {
+        const active = getActivePmarData(pmarData, activeIndicator)
+        const cb = mapTheme === 'light'
+          ? (active?.colorbar_light_b64 ?? active?.colorbar_b64)
+          : active?.colorbar_b64
+        return (
+          <div className="pmar-colorbar">
+            <span className="pmar-colorbar-label">{t.pmarControls.colorbarLabel}</span>
+            <img src={`data:image/png;base64,${cb}`} alt="colorbar" className="pmar-colorbar-img" />
+          </div>
+        )
+      })()}
 
       {pmarData && (
         <PmarControls
@@ -853,6 +883,9 @@ export default function App() {
           hasOffshoreInstallations={!!offshoreGeoJSON}
           onDownloadPmar={handleDownloadPmar}
           elevated={!!simData}
+          activeIndicator={activeIndicator}
+          onIndicatorChange={setActiveIndicator}
+          hasIndicators={!!(pmarData?.sum_raster_values)}
         />
       )}
 
