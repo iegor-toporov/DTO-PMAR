@@ -18,7 +18,7 @@ export default function Panel({
   onRun, onRunPmar,
   loading, status, statusType,
   pmarLoading, pmarStatus, pmarStatusType,
-  drawMode, onStartDraw, seedShape,
+  drawMode, onStartDraw, onClearSeedShape, seedShape,
   activeTool, onToolChange,
   useSource, onUseSourceChange,
   windfarmsLoading, windfarmsEmpty,
@@ -132,6 +132,7 @@ export default function Panel({
           statusType={pmarStatusType}
           drawMode={drawMode}
           onStartDraw={onStartDraw}
+          onClearSeedShape={onClearSeedShape}
           seedShape={seedShape}
           useSource={useSource}
           onUseSourceChange={onUseSourceChange}

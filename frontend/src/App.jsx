@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { MapContainer, TileLayer, useMap } from 'react-leaflet'
 import L from 'leaflet'
 import { MODEL_STYLES } from './constants'
@@ -546,6 +546,27 @@ function ComparisonView({ areas, mapRef, mapTheme, onRemoveArea, onClose }) {
   )
 }
 
+// ── Pure helper (outside component so reference is stable for useMemo) ───────
+function getActivePmarData(data, indicator) {
+  if (!data) return null
+  if (!indicator || indicator === 'density') return data
+  const k = indicator
+  if (!data[`${k}_raster_values`]) return data
+  return {
+    ...data,
+    raster_values:       data[`${k}_raster_values`],
+    raster_lon_min:      data[`${k}_raster_lon_min`],
+    raster_lat_min:      data[`${k}_raster_lat_min`],
+    raster_res:          data[`${k}_raster_res`],
+    raster_nx:           data[`${k}_raster_nx`],
+    raster_ny:           data[`${k}_raster_ny`],
+    colorbar_b64:        data[`${k}_colorbar_b64`],
+    colorbar_light_b64:  data[`${k}_colorbar_light_b64`],
+    vmin:                data[`${k}_vmin`],
+    vmax:                data[`${k}_vmax`],
+  }
+}
+
 // ── App ───────────────────────────────────────────────────────────────────────
 export default function App() {
   const { t, lang, toggle } = useLang()
@@ -678,6 +699,11 @@ export default function App() {
 
   function handleShapeDone(shape) {
     setSeedShape(shape)
+    setDrawMode(null)
+  }
+
+  function handleClearSeedShape() {
+    setSeedShape(null)
     setDrawMode(null)
   }
 
@@ -851,25 +877,13 @@ export default function App() {
   }
 
   // ── Active indicator raster ────────────────────────────────────────────────
-  function getActivePmarData(data, indicator) {
-    if (!data) return null
-    if (!indicator || indicator === 'density') return data
-    const k = indicator
-    if (!data[`${k}_raster_values`]) return data
-    return {
-      ...data,
-      raster_values:       data[`${k}_raster_values`],
-      raster_lon_min:      data[`${k}_raster_lon_min`],
-      raster_lat_min:      data[`${k}_raster_lat_min`],
-      raster_res:          data[`${k}_raster_res`],
-      raster_nx:           data[`${k}_raster_nx`],
-      raster_ny:           data[`${k}_raster_ny`],
-      colorbar_b64:        data[`${k}_colorbar_b64`],
-      colorbar_light_b64:  data[`${k}_colorbar_light_b64`],
-      vmin:                data[`${k}_vmin`],
-      vmax:                data[`${k}_vmax`],
-    }
-  }
+  // activePmarData is memoized so its reference only changes when pmarData or
+  // activeIndicator actually change — prevents PmarLayer from re-triggering
+  // fitBounds on unrelated state updates (e.g. activeMapTool).
+  const activePmarData = useMemo(
+    () => getActivePmarData(pmarData, activeIndicator),
+    [pmarData, activeIndicator],
+  )
 
   // ── PMAR raster download (GeoTIFF EPSG:4326) ──────────────────────────────
   // ── Tool result handlers ── (stubs expanded as each tool is implemented)
@@ -967,7 +981,7 @@ export default function App() {
           maxZoom={19}
         />
         <SimLayer simData={simData} currentStep={currentStep} />
-        <PmarLayer pmarData={getActivePmarData(pmarData, activeIndicator)} visible={showPmarRaster} passagesLabel={t.pmarControls.tooltipPassages} />
+        <PmarLayer pmarData={activePmarData} visible={showPmarRaster} passagesLabel={t.pmarControls.tooltipPassages} />
         <SeedingAreaLayer geojson={pmarData?.seeding_geojson ?? null} visible={showSeedShape} />
         <WindFarmsLayer geojson={windfarmsGeoJSON} visible={showWindFarms} />
         <OffshoreInstallationsLayer geojson={offshoreGeoJSON} visible={showOffshoreInstallations} />
@@ -980,7 +994,7 @@ export default function App() {
         {pmarData && (
           <HistogramDrawLayer
             active={activeMapTool === 'histogram'}
-            rasterData={getActivePmarData(pmarData, activeIndicator)}
+            rasterData={activePmarData}
             onResult={(result, layer) =>
               setHistograms(prev => [...prev, { id: Date.now(), result, layer }])
             }
@@ -989,9 +1003,9 @@ export default function App() {
         {pmarData && ['stats', 'threshold', 'csv', 'comparison'].includes(activeMapTool) && (
           <RectSelectionLayer
             active={true}
-            rasterData={getActivePmarData(pmarData, activeIndicator)}
+            rasterData={activePmarData}
             onResult={(snap, layer) => {
-              const rd = getActivePmarData(pmarData, activeIndicator)
+              const rd = activePmarData
               if (activeMapTool === 'stats')       handleStatsResult(snap, layer, rd)
               else if (activeMapTool === 'threshold') handleThresholdResult(snap, layer, rd)
               else if (activeMapTool === 'csv')    handleCsvResult(snap, layer, rd)
@@ -1003,7 +1017,7 @@ export default function App() {
           <LineSelectionLayer
             active={true}
             onResult={(lineData, layer) => {
-              const rd = getActivePmarData(pmarData, activeIndicator)
+              const rd = activePmarData
               handleProfileResult(lineData, layer, rd)
             }}
           />
@@ -1033,6 +1047,7 @@ export default function App() {
         pmarStatusType={pmarStatusType}
         drawMode={drawMode}
         onStartDraw={handleStartDraw}
+        onClearSeedShape={handleClearSeedShape}
         seedShape={seedShape}
         activeTool={activeTool}
         onToolChange={handleToolChange}
@@ -1045,7 +1060,7 @@ export default function App() {
       />
 
       {pmarData && showPmarRaster && (() => {
-        const active = getActivePmarData(pmarData, activeIndicator)
+        const active = activePmarData
         const cb = mapTheme === 'light'
           ? (active?.colorbar_light_b64 ?? active?.colorbar_b64)
           : active?.colorbar_b64

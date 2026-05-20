@@ -73,7 +73,7 @@ function seedShapeToGeoJSON(shape) {
 
 export default function PmarPanel({
   onRun, loading, status, statusType,
-  drawMode, onStartDraw, seedShape,
+  drawMode, onStartDraw, onClearSeedShape, seedShape,
   useSource, onUseSourceChange,
   windfarmsLoading, windfarmsEmpty,
   offshoreLoading, offshoreEmpty,
@@ -422,11 +422,11 @@ export default function PmarPanel({
         <div className="pmar-seed-row" style={{ gridTemplateColumns: '1fr 1fr' }}>
           <button type="button"
             className={`pmar-mode-tab${seedAreaMode === 'upload' ? ' active' : ''}`}
-            onClick={() => setSeedAreaMode('upload')}
+            onClick={() => { setSeedAreaMode('upload'); onClearSeedShape() }}
           >{p.seedAreaUpload}</button>
           <button type="button"
             className={`pmar-mode-tab${seedAreaMode === 't4msp' ? ' active' : ''}`}
-            onClick={() => setSeedAreaMode('t4msp')}
+            onClick={() => { setSeedAreaMode('t4msp'); onClearSeedShape() }}
           >{p.seedAreaT4msp}</button>
         </div>
 

@@ -31,9 +31,9 @@ CMEMS_CURRENT_DATASETS_DAILY = [
 
 # ── Dataset CMEMS per onde — deriva di Stokes (PlastDrift, OpenOil) ──────────
 CMEMS_WAVES_DATASETS = [
-    {'dataset_id': 'cmems_mod_med_wav_anfc_4.2km_PT1H-i',        'variables': ['vsdx', 'vsdy']},
-    {'dataset_id': 'cmems_mod_glo_wav_anfc_0.083deg_PT3H-i',     'variables': ['vsdx', 'vsdy']},
-    {'dataset_id': 'cmems_mod_glo_wav_my_0.2deg_PT3H-i',         'variables': ['vsdx', 'vsdy']},
+    {'dataset_id': 'cmems_mod_med_wav_anfc_4.2km_PT1H-i',     'variables': ['VSDX', 'VSDY']},
+    {'dataset_id': 'cmems_mod_glo_wav_anfc_0.083deg_PT3H-i',  'variables': ['VSDX', 'VSDY']},
+    {'dataset_id': 'cmems_mod_glo_wav_my_0.2deg_PT3H-i',      'variables': ['VSDX', 'VSDY']},
 ]
 
 # ── Dataset CMEMS per batimetria statica (profondità fondale) ────────────────
@@ -45,10 +45,10 @@ CMEMS_BATHY_DATASETS = [
 # ── Dataset CMEMS per temperatura e salinità (OpenOil weathering) ────────────
 # Prova prima dataset che contengono entrambe le variabili, poi temperature-only
 CMEMS_THERMO_DATASETS = [
-    {'dataset_id': 'cmems_mod_glo_phy_anfc_0.083deg_P1D-m',      'variables': ['thetao', 'so']},
-    {'dataset_id': 'cmems_mod_glo_phy_my_0.083deg_P1D-m',         'variables': ['thetao', 'so']},
-    {'dataset_id': 'cmems_mod_med_phy-tem_anfc_4.2km_PT1H-m',    'variables': ['thetao']},
-    {'dataset_id': 'cmems_mod_med_phy-tem_anfc_0.042deg_PT1H-m', 'variables': ['thetao']},
+    {'dataset_id': 'cmems_mod_glo_phy_anfc_0.083deg_P1D-m',         'variables': ['thetao', 'so']},
+    {'dataset_id': 'cmems_mod_glo_phy_my_0.083deg_P1D-m',           'variables': ['thetao', 'so']},
+    {'dataset_id': 'cmems_mod_med_phy-tem_anfc_4.2km_PT1H-m',       'variables': ['thetao']},
+    {'dataset_id': 'cmems_mod_med_phy-tem_anfc_0.042deg_PT1H-m',    'variables': ['thetao']},
     {'dataset_id': 'cmems_mod_glo_phy-thetao_anfc_0.083deg_PT6H-i', 'variables': ['thetao']},
 ]
 
