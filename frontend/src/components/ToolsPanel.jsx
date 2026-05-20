@@ -1,13 +1,17 @@
+import { Tooltip, ActionIcon, Badge } from '@mantine/core'
+import {
+  IconChartBar, IconChartAreaLine, IconWaveSine,
+  IconBolt, IconFileTypeCsv, IconStack2,
+} from '@tabler/icons-react'
 import { useLang } from '../LanguageContext'
-import './ToolsPanel.css'
 
 const TOOLS = [
-  { key: 'histogram',  icon: '📊', labelKey: 'histogramBtn' },
-  { key: 'stats',      icon: '📋', labelKey: 'statsBtn' },
-  { key: 'profile',    icon: '〰️', labelKey: 'profileBtn' },
-  { key: 'threshold',  icon: '⚡', labelKey: 'thresholdBtn' },
-  { key: 'csv',        icon: '📥', labelKey: 'csvBtn' },
-  { key: 'comparison', icon: '⊞', labelKey: 'comparisonBtn' },
+  { key: 'histogram',  Icon: IconChartBar,      labelKey: 'histogramBtn' },
+  { key: 'stats',      Icon: IconChartAreaLine,  labelKey: 'statsBtn' },
+  { key: 'profile',    Icon: IconWaveSine,       labelKey: 'profileBtn' },
+  { key: 'threshold',  Icon: IconBolt,           labelKey: 'thresholdBtn' },
+  { key: 'csv',        Icon: IconFileTypeCsv,    labelKey: 'csvBtn' },
+  { key: 'comparison', Icon: IconStack2,         labelKey: 'comparisonBtn' },
 ]
 
 export default function ToolsPanel({
@@ -20,27 +24,61 @@ export default function ToolsPanel({
   const c = t.toolsPanel
 
   return (
-    <div className="tools-panel">
-      <span className="tools-panel-label">{c.title}</span>
-      <div className="tools-panel-sep" />
-      {TOOLS.map(({ key, icon, labelKey }) => {
-        const isActive = activeMapTool === key
-        const isCsv    = key === 'csv'
-        const badge    = key === 'comparison' && comparisonAreaCount > 0
-          ? <span className="tools-panel-badge">{comparisonAreaCount} {c.comparisonAreas}</span>
-          : null
+    <div style={{
+      position: 'absolute',
+      top: 110,
+      right: 16,
+      zIndex: 1000,
+      display: 'flex',
+      flexDirection: 'column',
+      gap: 6,
+      alignItems: 'center',
+    }}>
+      {TOOLS.map(({ key, Icon, labelKey }) => {
+        const isActive  = activeMapTool === key
+        const showBadge = key === 'comparison' && comparisonAreaCount > 0
         return (
-          <button
-            key={key}
-            className={`tools-panel-btn${isActive ? ' active' : ''}${!hasRaster ? ' disabled' : ''}`}
-            onClick={hasRaster ? () => onSetTool(key) : undefined}
-            title={c[labelKey]}
-            disabled={!hasRaster}
-          >
-            <span className="tools-panel-btn-icon">{icon}</span>
-            <span className="tools-panel-btn-label">{c[labelKey]}</span>
-            {!isCsv && badge}
-          </button>
+          <Tooltip key={key} label={c[labelKey]} position="left" withArrow>
+            <ActionIcon
+              size={36}
+              radius="md"
+              variant={isActive ? 'filled' : 'default'}
+              color={isActive ? 'blue' : undefined}
+              disabled={!hasRaster}
+              onClick={hasRaster ? () => onSetTool(key) : undefined}
+              pos="relative"
+              style={{
+                backdropFilter: 'blur(20px) saturate(180%)',
+                background: isActive
+                  ? undefined
+                  : 'var(--panel-bg)',
+                border: isActive
+                  ? undefined
+                  : '1px solid var(--panel-border)',
+              }}
+            >
+              <Icon size={16} />
+              {showBadge && (
+                <Badge
+                  size="xs"
+                  color="blue"
+                  circle
+                  style={{
+                    position: 'absolute',
+                    top: -4,
+                    right: -4,
+                    fontSize: 8,
+                    minWidth: 14,
+                    height: 14,
+                    padding: 0,
+                    pointerEvents: 'none',
+                  }}
+                >
+                  {comparisonAreaCount}
+                </Badge>
+              )}
+            </ActionIcon>
+          </Tooltip>
         )
       })}
     </div>

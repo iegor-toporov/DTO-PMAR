@@ -1,6 +1,8 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { MapContainer, TileLayer, useMap } from 'react-leaflet'
 import L from 'leaflet'
+import { Modal, ActionIcon, Text, Button, Group, useMantineColorScheme } from '@mantine/core'
+import { IconSun, IconMoon } from '@tabler/icons-react'
 import { MODEL_STYLES } from './constants'
 import { useLang } from './LanguageContext'
 import Panel from './components/Panel'
@@ -286,8 +288,8 @@ function SeedingAreaLayer({ geojson, visible }) {
     if (!geojson || !visible) return
     layerRef.current = L.geoJSON(geojson, {
       style: {
-        color:       '#38bdf8',
-        fillColor:   '#7dd3fc',
+        color:       '#0a84ff',
+        fillColor:   '#64d2ff',
         fillOpacity: 0.12,
         weight:      2,
         opacity:     0.85,
@@ -317,13 +319,11 @@ function PmarLayer({ pmarData, visible, passagesLabel }) {
       raster_nx, raster_ny,
     } = pmarData
 
-    // Canvas nel overlayPane: viene trascinato con la mappa durante il pan
     const canvas = L.DomUtil.create('canvas', 'leaflet-zoom-hide')
     canvas.style.pointerEvents = 'none'
     map.getPanes().overlayPane.appendChild(canvas)
     canvasRef.current = canvas
 
-    // Tooltip sovrapposto al container della mappa
     const tooltip = document.createElement('div')
     tooltip.className = 'pmar-cell-tooltip'
     tooltip.style.display = 'none'
@@ -334,7 +334,6 @@ function PmarLayer({ pmarData, visible, passagesLabel }) {
       const size   = map.getSize()
       canvas.width  = size.x
       canvas.height = size.y
-      // Allinea il canvas al pixel origin corrente della mappa
       const origin = map.containerPointToLayerPoint([0, 0])
       L.DomUtil.setPosition(canvas, origin)
 
@@ -348,7 +347,6 @@ function PmarLayer({ pmarData, visible, passagesLabel }) {
           const val = rowData[col]
           if (!val || val <= 0) continue
 
-          // row 0 = sud (lat_min), aumenta verso nord
           const lat = raster_lat_min + row * raster_res
           const lon = raster_lon_min + col * raster_res
           const half = raster_res / 2
@@ -446,7 +444,6 @@ function seedShapeToGeoJSON(shape) {
       }],
     }
   }
-  // rectangle
   const { lon_min, lat_min, lon_max, lat_max } = shape
   return {
     type: 'FeatureCollection',
@@ -570,17 +567,15 @@ function getActivePmarData(data, indicator) {
 // ── App ───────────────────────────────────────────────────────────────────────
 export default function App() {
   const { t, lang, toggle } = useLang()
+  const { setColorScheme } = useMantineColorScheme()
 
-  // active tool
   const [activeTool, setActiveTool] = useState('opendrift')
   const [mapTheme,   setMapTheme]   = useState('light')
 
-  // seed shape (shared between tools)
   const [drawMode,      setDrawMode]      = useState(null)
   const [seedShape,     setSeedShape]     = useState(null)
   const [showSeedShape, setShowSeedShape] = useState(true)
 
-  // OpenDrift state
   const [simData,     setSimData]     = useState(null)
   const [currentStep, setCurrentStep] = useState(0)
   const [isPlaying,   setIsPlaying]   = useState(false)
@@ -589,7 +584,6 @@ export default function App() {
   const [status,      setStatus]      = useState('')
   const [statusType,  setStatusType]  = useState('')
 
-  // PMAR state
   const [pmarData,        setPmarData]        = useState(null)
   const [pmarLoading,     setPmarLoading]     = useState(false)
   const [pmarStatus,      setPmarStatus]      = useState('')
@@ -609,7 +603,6 @@ export default function App() {
   const toggleTool = (tool) =>
     setActiveMapTool(prev => prev === tool ? null : tool)
 
-  // Use-layer state (lifted from PmarPanel)
   const [useSource,        setUseSource]        = useState('none')
   const [windfarmsPreview, setWindfarmsPreview] = useState(null)
   const [windfarmsLoading, setWindfarmsLoading] = useState(false)
@@ -619,7 +612,6 @@ export default function App() {
   const [offshoreEmpty,    setOffshoreEmpty]    = useState(false)
   const [showOffshoreInstallations, setShowOffshoreInstallations] = useState(true)
 
-  // Derived: prefer result from PMAR run, fall back to preview fetch
   const windfarmsGeoJSON = pmarData?.windfarms_geojson ?? windfarmsPreview
   const offshoreGeoJSON  = pmarData?.offshore_geojson  ?? offshorePreview
 
@@ -685,13 +677,11 @@ export default function App() {
       .finally(() => setOffshoreLoading(false))
   }, [useSource, seedShape])
 
-  // ── Tool change ────────────────────────────────────────────────────────────
   function handleToolChange(tool) {
     setActiveTool(tool)
     setDrawMode(null)
   }
 
-  // ── Seed drawing ───────────────────────────────────────────────────────────
   function handleStartDraw(mode) {
     setDrawMode(mode)
     setSeedShape(null)
@@ -707,7 +697,6 @@ export default function App() {
     setDrawMode(null)
   }
 
-  // ── OpenDrift animation ────────────────────────────────────────────────────
   const tick = useCallback(() => {
     setCurrentStep(prev => {
       if (prev >= (simData?.steps.length ?? 1) - 1) {
@@ -735,7 +724,6 @@ export default function App() {
     }
   }
 
-  // ── OpenDrift run ──────────────────────────────────────────────────────────
   async function handleRun({ model, start_time, number, duration_hours }) {
     if (!seedShape) {
       setStatus(t.status.noShape)
@@ -791,7 +779,6 @@ export default function App() {
     }
   }
 
-  // ── PMAR run ───────────────────────────────────────────────────────────────
   async function handleRunPmar({ scenario_id, pressure, start_time, duration_days, pnum, res, margin, time_step_hours, shapefile_b64, geotiff_b64, geotiff_url }) {
     let inputs
 
@@ -824,7 +811,7 @@ export default function App() {
 
     setPmarLoading(true)
     setPmarData(null)
-    setPmarStatus(t.pmar.btnRunning.replace('⏳ ', '').replace('…', '…'))
+    setPmarStatus(t.pmar.btnRunning)
     setPmarStatusType('')
 
     try {
@@ -876,17 +863,10 @@ export default function App() {
     }
   }
 
-  // ── Active indicator raster ────────────────────────────────────────────────
-  // activePmarData is memoized so its reference only changes when pmarData or
-  // activeIndicator actually change — prevents PmarLayer from re-triggering
-  // fitBounds on unrelated state updates (e.g. activeMapTool).
   const activePmarData = useMemo(
     () => getActivePmarData(pmarData, activeIndicator),
     [pmarData, activeIndicator],
   )
-
-  // ── PMAR raster download (GeoTIFF EPSG:4326) ──────────────────────────────
-  // ── Tool result handlers ── (stubs expanded as each tool is implemented)
 
   function handleStatsResult(snap, layer, rd) {
     if (!rd) { layer?.remove(); return }
@@ -1006,9 +986,9 @@ export default function App() {
             rasterData={activePmarData}
             onResult={(snap, layer) => {
               const rd = activePmarData
-              if (activeMapTool === 'stats')       handleStatsResult(snap, layer, rd)
-              else if (activeMapTool === 'threshold') handleThresholdResult(snap, layer, rd)
-              else if (activeMapTool === 'csv')    handleCsvResult(snap, layer, rd)
+              if (activeMapTool === 'stats')           handleStatsResult(snap, layer, rd)
+              else if (activeMapTool === 'threshold')  handleThresholdResult(snap, layer, rd)
+              else if (activeMapTool === 'csv')        handleCsvResult(snap, layer, rd)
               else if (activeMapTool === 'comparison') handleComparisonResult(snap, layer, rd)
             }}
           />
@@ -1025,16 +1005,40 @@ export default function App() {
         <MapRefSetter mapRef={mapRef} />
       </MapContainer>
 
-      <button
-        className="map-theme-toggle"
+      <ActionIcon
+        style={{
+          position: 'absolute', top: 16, right: 16, zIndex: 1000,
+          background: 'var(--panel-bg)',
+          border: '1px solid var(--panel-border)',
+          backdropFilter: 'blur(20px) saturate(180%)',
+        }}
+        size={36}
+        radius="md"
+        variant="default"
         title={mapTheme === 'dark' ? 'Switch to light map' : 'Switch to dark map'}
-        onClick={() => setMapTheme(prev => prev === 'dark' ? 'light' : 'dark')}
+        onClick={() => {
+          const next = mapTheme === 'dark' ? 'light' : 'dark'
+          setMapTheme(next)
+          setColorScheme(next)
+        }}
       >
-        {mapTheme === 'dark' ? '☀️' : '🌙'}
-      </button>
-      <button className="map-lang-toggle" onClick={toggle} title="Switch language">
-        {lang === 'it' ? 'EN' : 'IT'}
-      </button>
+        {mapTheme === 'dark' ? <IconSun size={18} /> : <IconMoon size={18} />}
+      </ActionIcon>
+      <ActionIcon
+        style={{
+          position: 'absolute', top: 60, right: 16, zIndex: 1000,
+          background: 'var(--panel-bg)',
+          border: '1px solid var(--panel-border)',
+          backdropFilter: 'blur(20px) saturate(180%)',
+        }}
+        size={36}
+        radius="md"
+        variant="default"
+        title="Switch language"
+        onClick={toggle}
+      >
+        <Text size="xs" fw={700} c="dimmed">{lang === 'it' ? 'EN' : 'IT'}</Text>
+      </ActionIcon>
 
       <Panel
         onRun={handleRun}
@@ -1173,15 +1177,22 @@ export default function App() {
         })}
       />
 
-      {pmarErrorMsg && (
-        <div className="pmar-error-backdrop" onClick={() => setPmarErrorMsg(null)}>
-          <div className="pmar-error-modal" onClick={e => e.stopPropagation()}>
-            <div className="pmar-error-icon">⚠</div>
-            <p className="pmar-error-text">{pmarErrorMsg}</p>
-            <button className="pmar-error-btn" onClick={() => setPmarErrorMsg(null)}>OK</button>
-          </div>
-        </div>
-      )}
+      <Modal
+        opened={!!pmarErrorMsg}
+        onClose={() => setPmarErrorMsg(null)}
+        centered
+        size="sm"
+        title={<Text fw={600} size="sm">Errore</Text>}
+        styles={{
+          content: { background: 'var(--modal-bg)', border: '1px solid var(--modal-border)' },
+          header:  { background: 'var(--modal-bg)' },
+        }}
+      >
+        <Text size="sm" c="gray.2" style={{ lineHeight: 1.55 }}>{pmarErrorMsg}</Text>
+        <Button fullWidth mt="md" color="blue" variant="light" onClick={() => setPmarErrorMsg(null)}>
+          OK
+        </Button>
+      </Modal>
 
       {simData && (
         <AnimationControls

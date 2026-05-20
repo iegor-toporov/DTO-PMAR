@@ -1,38 +1,51 @@
 import { useState, useRef, useEffect } from 'react'
+import {
+  Tabs, Button, Group, Stack, Text, TextInput, Textarea,
+  SimpleGrid, SegmentedControl, NativeSelect, Paper, ScrollArea,
+} from '@mantine/core'
 import { useLang } from '../LanguageContext'
-import './PmarPanel.css'
 
 const PRESSURES = [
-  { key: 'generic', icon: '🌊', labelKey: 'generic' },
-  { key: 'plastic', icon: '🧴', labelKey: 'plastic' },
-  { key: 'oil',     icon: '🛢️', labelKey: 'oil'     },
-  { key: 'larvae',  icon: '🐟', labelKey: 'larvae'  },
+  { key: 'generic', labelKey: 'generic' },
+  { key: 'plastic', labelKey: 'plastic' },
+  { key: 'oil',     labelKey: 'oil'     },
+  { key: 'larvae',  labelKey: 'larvae'  },
 ]
 
 const USE_SOURCES = [
-  { key: 'none',                   icon: ''    },
-  { key: 'windfarms',              icon: '⚡'  },
-  { key: 'offshore_installations', icon: '🛢️' },
-  { key: 'geotiff',               icon: '🗺️' },
+  { key: 'none'                   },
+  { key: 'windfarms'              },
+  { key: 'offshore_installations' },
+  { key: 'geotiff'               },
 ]
 
 const RESOLUTIONS = [
-  { value: 0.001, label: '0.001°' },
-  { value: 0.01,  label: '0.01°' },
-  { value: 0.05,  label: '0.05°' },
-  { value: 0.1,   label: '0.1°'  },
-  { value: 0.2,   label: '0.2°'  },
-  { value: 0.5,   label: '0.5°'  },
-  { value: 1.0,   label: '1.0°'  },
+  { value: '0.001', label: '0.001°' },
+  { value: '0.01',  label: '0.01°' },
+  { value: '0.05',  label: '0.05°' },
+  { value: '0.1',   label: '0.1°'  },
+  { value: '0.2',   label: '0.2°'  },
+  { value: '0.5',   label: '0.5°'  },
+  { value: '1.0',   label: '1.0°'  },
 ]
 
 const TIME_STEPS = [
-  { value: 1,  label: '1 h'  },
-  { value: 3,  label: '3 h'  },
-  { value: 6,  label: '6 h'  },
-  { value: 12, label: '12 h' },
-  { value: 24, label: '24 h' },
+  { value: '1',  label: '1 h'  },
+  { value: '3',  label: '3 h'  },
+  { value: '6',  label: '6 h'  },
+  { value: '12', label: '12 h' },
+  { value: '24', label: '24 h' },
 ]
+
+const LABEL_STYLES = {
+  label: {
+    color: 'var(--mantine-color-dimmed)',
+    fontSize: 11,
+    fontWeight: 600,
+    textTransform: 'uppercase',
+    letterSpacing: '0.05em',
+  },
+}
 
 function defaultStartDate() {
   const d = new Date(Date.now() - 10 * 24 * 60 * 60 * 1000)
@@ -81,21 +94,17 @@ export default function PmarPanel({
   const { t, lang } = useLang()
   const p = t.pmar
 
-  // Tabs: 'custom' = Simulazione, 'scenario' = Analisi
   const [runMode, setRunMode] = useState('custom')
 
-  // Seeding area mode in Simulation form
   const [seedAreaMode,      setSeedAreaMode]      = useState('draw')
   const [shapefileB64,      setShapefileB64]      = useState(null)
   const [shapefileName,     setShapefileName]     = useState('')
   const fileRef = useRef(null)
 
-  // T4MSP area picker (for seeding in new simulation form)
   const [t4mspAreas,        setT4mspAreas]        = useState([])
   const [selectedT4mspArea, setSelectedT4mspArea] = useState(null)
   const [t4mspSearch,       setT4mspSearch]       = useState('')
 
-  // New simulation params
   const [customLabel,   setCustomLabel]   = useState('')
   const [customDesc,    setCustomDesc]    = useState('')
   const [seedAreaName,  setSeedAreaName]  = useState('')
@@ -104,26 +113,22 @@ export default function PmarPanel({
   const [startDate,     setStartDate]     = useState(defaultStartDate())
   const [durationDays,  setDurationDays]  = useState('30')
   const [pnum,          setPnum]          = useState('1000')
-  const [timeStepHours, setTimeStepHours] = useState(1)
+  const [timeStepHours, setTimeStepHours] = useState('1')
 
-  // Analisi tab params
-  const [res,         setRes]         = useState(0.1)
+  const [res,         setRes]         = useState('0.1')
   const [margin,      setMargin]      = useState('1')
   const [geotiffB64,  setGeotiffB64]  = useState(null)
   const [geotiffName, setGeotiffName] = useState('')
   const [geotiffUrl,  setGeotiffUrl]  = useState('')
   const geotiffRef = useRef(null)
 
-  // Scenario state
   const [scenarioStatuses, setScenarioStatuses] = useState({})
   const [scenarioId,       setScenarioId]       = useState('')
 
-  // Custom precompute
   const [customJob,             setCustomJob]             = useState(null)
   const [customPrecomputeError, setCustomPrecomputeError] = useState(null)
   const [refetchFlag,           setRefetchFlag]           = useState(0)
 
-  // ── Fetch statuses (on mount, tab switch, or explicit refetch) ────────────
   useEffect(() => {
     fetch('/processes/scenario_status/execution', {
       method: 'POST',
@@ -144,7 +149,6 @@ export default function PmarPanel({
       .catch(() => {})
   }, [runMode, refetchFlag])
 
-  // ── Polling custom precompute job ─────────────────────────────────────────
   useEffect(() => {
     if (!customJob) return
     const iv = setInterval(async () => {
@@ -232,7 +236,7 @@ export default function PmarPanel({
     const gUrl = geotiffUrl.trim() || null
     onRun({
       scenario_id: scenarioId,
-      res,
+      res: parseFloat(res),
       margin: parseFloat(margin) || 0,
       geotiff_b64: useSource === 'geotiff' ? geotiffB64 : null,
       geotiff_url: useSource === 'geotiff' ? gUrl        : null,
@@ -252,408 +256,480 @@ export default function PmarPanel({
     (useSource !== 'geotiff' || !!geotiffB64 || !!geotiffUrl.trim())
 
   const ncBytesPerStep  = pressure === 'oil' ? 160 : pressure === 'larvae' ? 120 : pressure === 'plastic' ? 60 : 40
-  const stepsPerDay     = 24 / timeStepHours
+  const stepsPerDay     = 24 / parseInt(timeStepHours || 1)
   const ncEstimateBytes = parseInt(pnum || 0) * parseInt(durationDays || 0) * stepsPerDay * ncBytesPerStep
   function formatNcSize(bytes) {
     if (bytes >= 1e9) return (bytes / 1e9).toFixed(1) + ' GB'
     if (bytes >= 1e6) return (bytes / 1e6).toFixed(0) + ' MB'
     return (bytes / 1e3).toFixed(0) + ' KB'
   }
-  const ncSizeClass = ncEstimateBytes > 2e9 ? 'pmar-nc-size pmar-nc-size--warn'
-                    : ncEstimateBytes > 5e8 ? 'pmar-nc-size pmar-nc-size--caution'
-                    : 'pmar-nc-size'
+  const ncColor  = ncEstimateBytes > 2e9 ? 'red.4' : ncEstimateBytes > 5e8 ? 'yellow.4' : 'dimmed'
+  const ncBg     = ncEstimateBytes > 2e9 ? 'rgba(239,68,68,0.07)' : ncEstimateBytes > 5e8 ? 'rgba(245,158,11,0.07)' : 'rgba(10,132,255,0.05)'
+  const ncBorder = ncEstimateBytes > 2e9 ? '#ef4444' : ncEstimateBytes > 5e8 ? '#f59e0b' : 'rgba(10,132,255,0.30)'
 
   const customEntries = Object.entries(scenarioStatuses).filter(([, sc]) => sc.source === 'custom')
 
-  const searchLow      = t4mspSearch.toLowerCase()
-  const filteredAreas  = searchLow
+  const searchLow     = t4mspSearch.toLowerCase()
+  const filteredAreas = searchLow
     ? t4mspAreas.filter(a => a.label.toLowerCase().includes(searchLow))
     : t4mspAreas
 
-  function ScenarioItem({ sid, sc }) {
-    const st         = sc.status ?? 'unknown'
-    const isSelected = scenarioId === sid
-    const isReady    = st === 'ready'
-    const label      = lang === 'it' ? sc.label_it : sc.label_en
-    return (
-      <div
-        className={`pmar-scenario-item${isSelected && isReady ? ' selected' : ''}${!isReady ? ' disabled' : ''}`}
-        onClick={() => isReady && setScenarioId(sid)}
-      >
-        <div className="pmar-scenario-item-header">
-          <span className="pmar-scenario-item-label">{label}</span>
-          <span className="pmar-scenario-item-status">
-            {st === 'ready'        && '✅'}
-            {st === 'not_computed' && '⬜'}
-            {st === 'error'        && '❌'}
-            {st === 'unknown'      && '…'}
-          </span>
-        </div>
-        <div className="pmar-scenario-item-meta">
-          {p.pressures[sc.pressure]} · {sc.start_time} · {sc.duration_days} d · {sc.pnum?.toLocaleString()} p
-        </div>
-      </div>
-    )
-  }
-
   return (
-    <form onSubmit={handleSubmit} className="pmar-form">
+    <form onSubmit={handleSubmit}>
+      <Stack gap="sm" p="md">
 
-      {/* ── Tab toggle ────────────────────────────────────────────────── */}
-      <div className="pmar-mode-tabs" style={{ marginTop: 4 }}>
-        <button type="button"
-          className={`pmar-mode-tab${runMode === 'custom' ? ' active' : ''}`}
-          onClick={() => setRunMode('custom')}
-        >{p.modeCustomBtn}</button>
-        <button type="button"
-          className={`pmar-mode-tab${runMode === 'scenario' ? ' active' : ''}`}
-          onClick={() => setRunMode('scenario')}
-        >{p.modeScenarioBtn}</button>
-      </div>
+        <Tabs value={runMode} onChange={setRunMode}>
+          <Tabs.List grow>
+            <Tabs.Tab value="custom" fz="xs">{p.modeCustomBtn}</Tabs.Tab>
+            <Tabs.Tab value="scenario" fz="xs">{p.modeScenarioBtn}</Tabs.Tab>
+          </Tabs.List>
 
-      {/* ══════════════════════════════════════════════════════════════ */}
-      {/* ── TAB SIMULAZIONE ─────────────────────────────────────────── */}
-      {/* ══════════════════════════════════════════════════════════════ */}
-      {runMode === 'custom' && <>
+          {/* ══════════════════════════════════════════════════════════ */}
+          {/* ── TAB SIMULAZIONE ─────────────────────────────────────── */}
+          {/* ══════════════════════════════════════════════════════════ */}
+          <Tabs.Panel value="custom">
+            <Stack gap="sm" pt="sm">
 
-        {/* ── Simulazioni esistenti ────────────────────────────────── */}
-        <div className="section-label" style={{ marginTop: 10 }}>{p.sectionExisting}</div>
-        {customEntries.length === 0
-          ? <div className="draw-hint">{p.noExisting}</div>
-          : <>
-              <div className="pmar-select-wrapper">
-                <select
-                  className="pmar-select pmar-scenario-select"
-                  value={scenarioId}
-                  onChange={e => setScenarioId(e.target.value)}
-                >
-                  <option value="">{p.scenarioNone}</option>
-                  {customEntries.map(([sid, sc]) => {
-                    const label = lang === 'it' ? sc.label_it : sc.label_en
-                    const icon  = sc.status === 'ready' ? '✅' : sc.status === 'not_computed' ? '⬜' : '❌'
-                    return <option key={sid} value={sid}>{icon} {label}</option>
-                  })}
-                </select>
-              </div>
-              {(() => {
-                const sc = scenarioId ? scenarioStatuses[scenarioId] : null
-                if (sc) {
-                  const areaName = lang === 'it'
-                    ? (sc.area_it || p.areaUndefined)
-                    : (sc.area_en || p.areaUndefined)
-                  const isCustomArea = areaName === 'Area personalizzata' || areaName === 'Custom area'
-                  return (
-                    <div className="pmar-scenario-info" style={{ marginTop: 6 }}>
-                      <div className="pmar-scenario-info-row">
-                        <span>{p.seedAreaName}</span>
-                        <span>{isCustomArea ? p.areaUndefined : areaName}</span>
-                      </div>
-                      <div className="pmar-scenario-info-row">
-                        <span>{p.sectionPressure}</span><span>{p.pressures[sc.pressure]}</span>
-                      </div>
-                      <div className="pmar-scenario-info-row">
-                        <span>{p.labelStart}</span><span>{sc.start_time}</span>
-                      </div>
-                      <div className="pmar-scenario-info-row">
-                        <span>{p.labelDuration}</span><span>{sc.duration_days} d</span>
-                      </div>
-                      <div className="pmar-scenario-info-row">
-                        <span>{p.labelParticles}</span><span>{sc.pnum?.toLocaleString()}</span>
-                      </div>
-                      <div className="pmar-scenario-info-row">
-                        <span>{p.labelTimeStep}</span><span>{sc.time_step_hours} h</span>
-                      </div>
-                      <div className="pmar-scenario-info-row">
-                        <span>{p.labelCmemsMarginShort}</span><span>{sc.cmems_margin ?? 5} °</span>
-                      </div>
-                      {sc.description && (
-                        <div style={{ marginTop: 6, fontSize: 11.5, color: '#94a3b8', lineHeight: 1.5,
-                          borderTop: '1px solid rgba(148,163,184,0.12)', paddingTop: 6 }}>
-                          {sc.description}
-                        </div>
-                      )}
-                    </div>
-                  )
-                }
-                return <div className="draw-hint" style={{ marginTop: 5 }}>{p.sectionExistingDesc}</div>
-              })()}
-            </>
-        }
-
-        {/* ── Nuova simulazione ────────────────────────────────────── */}
-        <div className="pmar-section-title">{p.sectionNewScenario}</div>
-
-        {/* ── Titolo ──────────────────────────────────────────────── */}
-        <div className="form-row">
-          <label>{p.labelTitle}</label>
-          <input type="text" value={customLabel}
-            onChange={e => setCustomLabel(e.target.value)}
-            placeholder={p.labelTitleHint} />
-        </div>
-
-        {/* ── Descrizione ─────────────────────────────────────────── */}
-        <div className="form-row">
-          <label>{p.labelDesc}</label>
-          <textarea value={customDesc}
-            onChange={e => setCustomDesc(e.target.value)}
-            placeholder={p.labelDescHint} />
-        </div>
-
-        {/* ── Area di seeding ─────────────────────────────────────── */}
-        <div className="section-label" style={{ marginTop: 6 }}>{p.seedAreaLabel}</div>
-
-        {/* Riga 1: gruppo Disegna */}
-        <div className={`pmar-draw-group${seedAreaMode === 'draw' ? ' active' : ''}`} style={{ marginBottom: 6 }}>
-          <button type="button"
-            className={`pmar-mode-tab${seedAreaMode === 'draw' ? ' active' : ''}`}
-            onClick={() => setSeedAreaMode('draw')}
-          >{p.seedAreaDraw}</button>
-          <button type="button"
-            className={`draw-btn${seedAreaMode === 'draw' && drawMode === 'circle' ? ' active' : ''}`}
-            onClick={() => { setSeedAreaMode('draw'); onStartDraw('circle') }}
-          >{p.btnCircle}</button>
-          <button type="button"
-            className={`draw-btn${seedAreaMode === 'draw' && drawMode === 'rectangle' ? ' active' : ''}`}
-            onClick={() => { setSeedAreaMode('draw'); onStartDraw('rectangle') }}
-          >{p.btnRect}</button>
-        </div>
-
-        {/* Riga 2: Shapefile + Area predefinita */}
-        <div className="pmar-seed-row" style={{ gridTemplateColumns: '1fr 1fr' }}>
-          <button type="button"
-            className={`pmar-mode-tab${seedAreaMode === 'upload' ? ' active' : ''}`}
-            onClick={() => { setSeedAreaMode('upload'); onClearSeedShape() }}
-          >{p.seedAreaUpload}</button>
-          <button type="button"
-            className={`pmar-mode-tab${seedAreaMode === 't4msp' ? ' active' : ''}`}
-            onClick={() => { setSeedAreaMode('t4msp'); onClearSeedShape() }}
-          >{p.seedAreaT4msp}</button>
-        </div>
-
-        {seedAreaMode === 'draw' && (
-          <>
-            {drawMode === 'circle'    && <div className="draw-hint" style={{ marginTop: 6 }}>{p.hintCircle}</div>}
-            {drawMode === 'rectangle' && <div className="draw-hint" style={{ marginTop: 6 }}>{p.hintRect}</div>}
-            {!drawMode && seedInfo    && <div className="seed-info" style={{ marginTop: 6 }}>{seedInfo}</div>}
-            {!drawMode && !seedShape  && <div className="draw-hint" style={{ marginTop: 6 }}>{p.hintNoShape}</div>}
-            <div className="form-row" style={{ marginTop: 8 }}>
-              <label>{p.labelSeedName}</label>
-              <input type="text" value={seedAreaName}
-                onChange={e => setSeedAreaName(e.target.value)}
-                placeholder={p.labelSeedNameHint} />
-            </div>
-          </>
-        )}
-
-        {seedAreaMode === 'upload' && (
-          <div className="pmar-upload-area" onClick={() => fileRef.current?.click()}>
-            <input ref={fileRef} type="file" accept=".zip" style={{ display: 'none' }}
-              onChange={handleFileChange} />
-            {shapefileB64
-              ? <span className="pmar-file-name">📂 {shapefileName}</span>
-              : <span className="pmar-upload-hint">{p.uploadHint}</span>
-            }
-          </div>
-        )}
-
-        {seedAreaMode === 't4msp' && (
-          <>
-            <input className="pmar-url-input" type="text" placeholder={p.t4mspSearchHint}
-              value={t4mspSearch}
-              onChange={e => { setT4mspSearch(e.target.value); setSelectedT4mspArea(null) }}
-              style={{ marginTop: 8 }}
-            />
-            <div className="pmar-area-list">
-              {filteredAreas.map(area => (
-                <div
-                  key={area.id}
-                  className={`pmar-area-item${selectedT4mspArea === area.id ? ' selected' : ''}`}
-                  onClick={() => setSelectedT4mspArea(selectedT4mspArea === area.id ? null : area.id)}
-                >
-                  <span>{area.label}</span>
-                  {selectedT4mspArea === area.id && <span>✅</span>}
-                </div>
-              ))}
-              {filteredAreas.length === 0 && <div className="draw-hint">⋯</div>}
-            </div>
-          </>
-        )}
-
-        {/* ── Tipo di pressione ────────────────────────────────────── */}
-        <div className="section-label" style={{ marginTop: 14 }}>{p.sectionPressure}</div>
-        <div className="pmar-pressure-grid">
-          {PRESSURES.map(pr => (
-            <button key={pr.key} type="button"
-              className={`pmar-pressure-btn${pressure === pr.key ? ' active' : ''}`}
-              onClick={() => setPressure(pr.key)}
-            >{pr.icon} {p.pressures[pr.key]}</button>
-          ))}
-        </div>
-
-        {/* ── Parametri ───────────────────────────────────────────── */}
-        <div className="form-row">
-          <label>{p.labelStart}</label>
-          <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} />
-        </div>
-        <div className="form-grid">
-          <div className="form-row">
-            <label>{p.labelDuration}</label>
-            <input type="number" value={durationDays} min="1" max="730"
-              onChange={e => setDurationDays(e.target.value)} />
-          </div>
-          <div className="form-row">
-            <label>{p.labelParticles}</label>
-            <input type="number" value={pnum} min="10" max="100000"
-              onChange={e => setPnum(e.target.value)} />
-          </div>
-        </div>
-        <div className="form-row">
-          <label>{p.labelTimeStep}</label>
-          <div className="pmar-select-wrapper" style={{ marginTop: 0 }}>
-            <select className="pmar-select pmar-scenario-select" value={timeStepHours}
-              onChange={e => setTimeStepHours(parseInt(e.target.value))}>
-              {TIME_STEPS.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
-            </select>
-          </div>
-        </div>
-
-        <div className="form-row">
-          <label>{p.labelCmemsMargin}</label>
-          <input type="number" value={cmemsMargin} min="0" max="20" step="any"
-            onChange={e => setCmemsMargin(e.target.value)} />
-        </div>
-
-        <div className={ncSizeClass}>
-          {p.ncSizeHint.replace('{size}', formatNcSize(ncEstimateBytes))}
-        </div>
-
-        <button type="button" className="run-btn" disabled={!canPrecompute}
-          onClick={handleCustomCompute}
-        >{customJob ? p.btnPrecomputing : p.btnPrecompute}</button>
-
-        {customPrecomputeError && (
-          <div className="status error">{customPrecomputeError}</div>
-        )}
-      </>}
-
-      {/* ══════════════════════════════════════════════════════════════ */}
-      {/* ── TAB ANALISI ─────────────────────────────────────────────── */}
-      {/* ══════════════════════════════════════════════════════════════ */}
-      {runMode === 'scenario' && <>
-
-        {/* ── Info simulazione selezionata ─────────────────────────── */}
-        {(() => {
-          const sc = scenarioStatuses[scenarioId]
-          if (!sc || sc.status !== 'ready') {
-            return (
-              <div className="draw-hint" style={{ marginTop: 12 }}>{p.hintNoScenario}</div>
-            )
-          }
-          const areaName = lang === 'it'
-            ? (sc.area_it || p.areaUndefined)
-            : (sc.area_en || p.areaUndefined)
-          const isCustomArea = areaName === 'Area personalizzata' || areaName === 'Custom area'
-          return (
-            <div className="pmar-scenario-info" style={{ marginTop: 10 }}>
-              <div className="pmar-scenario-info-row">
-                <span>{p.seedAreaName}</span>
-                <span>{isCustomArea ? p.areaUndefined : areaName}</span>
-              </div>
-              <div className="pmar-scenario-info-row">
-                <span>{p.sectionPressure}</span>
-                <span>{p.pressures[sc.pressure]}</span>
-              </div>
-              <div className="pmar-scenario-info-row">
-                <span>{p.labelStart}</span><span>{sc.start_time}</span>
-              </div>
-              <div className="pmar-scenario-info-row">
-                <span>{p.labelDuration}</span><span>{sc.duration_days} d</span>
-              </div>
-              <div className="pmar-scenario-info-row">
-                <span>{p.labelParticles}</span><span>{sc.pnum?.toLocaleString()}</span>
-              </div>
-              <div className="pmar-scenario-info-row">
-                <span>{p.labelTimeStep}</span><span>{sc.time_step_hours} h</span>
-              </div>
-              {sc.description && (
-                <div style={{ marginTop: 6, fontSize: 11.5, color: '#94a3b8', lineHeight: 1.5,
-                  borderTop: '1px solid rgba(148,163,184,0.12)', paddingTop: 6 }}>
-                  {sc.description}
-                </div>
+              {/* ── Simulazioni esistenti ────────────────────────── */}
+              <Text size="xs" fw={600} c="dimmed" tt="uppercase" style={{ letterSpacing: '0.05em' }}>
+                {p.sectionExisting}
+              </Text>
+              {customEntries.length === 0 ? (
+                <Text size="xs" c="dimmed" ta="center">{p.noExisting}</Text>
+              ) : (
+                <>
+                  <NativeSelect
+                    size="xs"
+                    value={scenarioId}
+                    onChange={e => setScenarioId(e.target.value)}
+                    data={[
+                      { value: '', label: p.scenarioNone },
+                      ...customEntries.map(([sid, sc]) => {
+                        const label = lang === 'it' ? sc.label_it : sc.label_en
+                        const icon  = sc.status === 'ready' ? '✓' : sc.status === 'not_computed' ? '○' : '✗'
+                        return { value: sid, label: `${icon} ${label}` }
+                      })
+                    ]}
+                  />
+                  {(() => {
+                    const sc = scenarioId ? scenarioStatuses[scenarioId] : null
+                    if (sc) {
+                      const areaName = lang === 'it'
+                        ? (sc.area_it || p.areaUndefined)
+                        : (sc.area_en || p.areaUndefined)
+                      const isCustomArea = areaName === 'Area personalizzata' || areaName === 'Custom area'
+                      return (
+                        <Paper p="xs" radius="sm" style={{ background: 'var(--modal-bg)', border: '1px solid var(--modal-divider)' }}>
+                          <Stack gap={4}>
+                            {[
+                              [p.seedAreaName,        isCustomArea ? p.areaUndefined : areaName],
+                              [p.sectionPressure,     p.pressures[sc.pressure]],
+                              [p.labelStart,          sc.start_time],
+                              [p.labelDuration,       `${sc.duration_days} d`],
+                              [p.labelParticles,      sc.pnum?.toLocaleString()],
+                              [p.labelTimeStep,       `${sc.time_step_hours} h`],
+                              [p.labelCmemsMarginShort, `${sc.cmems_margin ?? 5} °`],
+                            ].map(([label, val]) => (
+                              <Group key={label} justify="space-between" gap="xs">
+                                <Text size="10px" c="dimmed">{label}</Text>
+                                <Text size="10px" c="gray.3" fw={500}>{val}</Text>
+                              </Group>
+                            ))}
+                            {sc.description && (
+                              <Text size="10px" c="dimmed" mt={4} style={{ borderTop: '1px solid var(--modal-divider)', paddingTop: 4, lineHeight: 1.5 }}>
+                                {sc.description}
+                              </Text>
+                            )}
+                          </Stack>
+                        </Paper>
+                      )
+                    }
+                    return <Text size="xs" c="dimmed" ta="center">{p.sectionExistingDesc}</Text>
+                  })()}
+                </>
               )}
-            </div>
-          )
-        })()}
 
-        {/* ── Layer sorgente ───────────────────────────────────────── */}
-        <div className="section-label" style={{ marginTop: 14 }}>{p.sectionUse}</div>
-        <div className="pmar-use-grid">
-          {USE_SOURCES.map(u => (
-            <button key={u.key} type="button"
-              className={`pmar-use-btn${useSource === u.key ? ' active' : ''}`}
-              onClick={() => onUseSourceChange(u.key)}
-            >
-              {u.key === 'windfarms' && windfarmsLoading ? '⏳ …'
-                : u.key === 'offshore_installations' && offshoreLoading ? '⏳ …'
-                : u.icon ? `${u.icon} ${p.useSources[u.key]}` : p.useSources[u.key]}
-            </button>
-          ))}
-        </div>
-        {useSource === 'windfarms' && !windfarmsEmpty && (
-          <div className="pmar-use-info">{p.useWindfarmsInfo}</div>
-        )}
-        {useSource === 'windfarms' && windfarmsEmpty && (
-          <div className="pmar-use-warn">{p.useWindfarmsEmpty}</div>
-        )}
-        {useSource === 'offshore_installations' && !offshoreEmpty && (
-          <div className="pmar-use-info">{p.useOffshoreInfo}</div>
-        )}
-        {useSource === 'offshore_installations' && offshoreEmpty && (
-          <div className="pmar-use-warn">{p.useOffshoreEmpty}</div>
-        )}
-        {useSource === 'geotiff' && (
-          <>
-            <div className="pmar-upload-area" onClick={() => geotiffRef.current?.click()}>
-              <input ref={geotiffRef} type="file" accept=".tif,.tiff"
-                style={{ display: 'none' }} onChange={handleGeotiffChange} />
-              {geotiffB64
-                ? <span className="pmar-file-name">🗺️ {geotiffName}</span>
-                : <span className="pmar-upload-hint">{p.geotiffUploadHint}</span>
-              }
-            </div>
-            <div className="pmar-url-separator">{p.geotiffOrLabel}</div>
-            <input className={`pmar-url-input${geotiffUrl.trim() ? ' has-value' : ''}`}
-              type="url" placeholder={p.geotiffUrlHint} value={geotiffUrl}
-              onChange={e => setGeotiffUrl(e.target.value)} />
-          </>
-        )}
+              {/* ── Nuova simulazione ──────────────────────────── */}
+              <Text size="xs" fw={700} c="blue.4" tt="uppercase" style={{ letterSpacing: '0.05em', borderTop: '1px solid var(--modal-divider)', paddingTop: 8 }}>
+                {p.sectionNewScenario}
+              </Text>
 
-        {/* ── Risoluzione ──────────────────────────────────────────── */}
-        <div className="form-row" style={{ marginTop: 10 }}>
-          <label>{p.labelRes}</label>
-          <select className="pmar-select" value={res}
-            onChange={e => setRes(parseFloat(e.target.value))}>
-            {RESOLUTIONS.map(r => (
-              <option key={r.value} value={r.value}>{r.label}</option>
-            ))}
-          </select>
-        </div>
+              <TextInput
+                size="xs"
+                label={p.labelTitle}
+                placeholder={p.labelTitleHint}
+                value={customLabel}
+                onChange={e => setCustomLabel(e.target.value)}
+                styles={LABEL_STYLES}
+              />
 
-        {/* ── Margine study area ───────────────────────────────────── */}
-        <div className="form-row">
-          <label>{p.labelMargin}</label>
-          <input type="number" value={margin} min="0" max="20" step="any"
-            onChange={e => setMargin(e.target.value)} />
-        </div>
+              <Textarea
+                size="xs"
+                label={p.labelDesc}
+                placeholder={p.labelDescHint}
+                value={customDesc}
+                onChange={e => setCustomDesc(e.target.value)}
+                autosize
+                minRows={2}
+                styles={LABEL_STYLES}
+              />
 
-        {/* ── Run ─────────────────────────────────────────────────── */}
-        <button className="run-btn" type="submit" disabled={!canSubmit}>
-          {loading ? p.btnRunning : p.btnRun}
-        </button>
+              {/* ── Area di seeding ───────────────────────────── */}
+              <Text size="xs" fw={600} c="dimmed" tt="uppercase" style={{ letterSpacing: '0.05em' }}>
+                {p.seedAreaLabel}
+              </Text>
+              <SegmentedControl
+                size="xs"
+                fullWidth
+                value={seedAreaMode}
+                onChange={mode => {
+                  setSeedAreaMode(mode)
+                  if (mode !== 'draw') onClearSeedShape()
+                }}
+                data={[
+                  { value: 'draw',   label: p.seedAreaDraw },
+                  { value: 'upload', label: p.seedAreaUpload },
+                  { value: 't4msp',  label: p.seedAreaT4msp },
+                ]}
+                color="blue"
+              />
 
-        {status && <div className={`status ${statusType}`}>{status}</div>}
-      </>}
+              {seedAreaMode === 'draw' && (
+                <Stack gap="xs">
+                  <Group grow gap="xs">
+                    <Button
+                      size="xs"
+                      variant={drawMode === 'circle' ? 'filled' : 'light'}
+                      color="blue"
+                      onClick={() => onStartDraw('circle')}
+                    >
+                      {p.btnCircle}
+                    </Button>
+                    <Button
+                      size="xs"
+                      variant={drawMode === 'rectangle' ? 'filled' : 'light'}
+                      color="blue"
+                      onClick={() => onStartDraw('rectangle')}
+                    >
+                      {p.btnRect}
+                    </Button>
+                  </Group>
+                  {drawMode === 'circle'    && <Text size="xs" c="dimmed" ta="center">{p.hintCircle}</Text>}
+                  {drawMode === 'rectangle' && <Text size="xs" c="dimmed" ta="center">{p.hintRect}</Text>}
+                  {!drawMode && seedInfo && (
+                    <Text size="xs" ta="center" c="blue.4" p="xs" style={{ background: 'rgba(10,132,255,0.08)', borderRadius: 6, border: '1px solid rgba(10,132,255,0.20)' }}>
+                      {seedInfo}
+                    </Text>
+                  )}
+                  {!drawMode && !seedShape && <Text size="xs" c="dimmed" ta="center">{p.hintNoShape}</Text>}
+                  <TextInput
+                    size="xs"
+                    label={p.labelSeedName}
+                    placeholder={p.labelSeedNameHint}
+                    value={seedAreaName}
+                    onChange={e => setSeedAreaName(e.target.value)}
+                    styles={LABEL_STYLES}
+                  />
+                </Stack>
+              )}
 
+              {seedAreaMode === 'upload' && (
+                <Button
+                  size="xs"
+                  variant="light"
+                  color="blue"
+                  fullWidth
+                  onClick={() => fileRef.current?.click()}
+                  style={{ height: 'auto', padding: '12px 8px' }}
+                >
+                  <input ref={fileRef} type="file" accept=".zip" style={{ display: 'none' }} onChange={handleFileChange} />
+                  {shapefileB64
+                    ? <Text size="xs">{shapefileName}</Text>
+                    : <Text size="xs" c="dimmed">{p.uploadHint}</Text>}
+                </Button>
+              )}
+
+              {seedAreaMode === 't4msp' && (
+                <Stack gap="xs">
+                  <TextInput
+                    size="xs"
+                    placeholder={p.t4mspSearchHint}
+                    value={t4mspSearch}
+                    onChange={e => { setT4mspSearch(e.target.value); setSelectedT4mspArea(null) }}
+                  />
+                  <ScrollArea h={140} style={{ border: '1px solid var(--modal-border)', borderRadius: 6 }}>
+                    <Stack gap={0}>
+                      {filteredAreas.map(area => (
+                        <button
+                          key={area.id}
+                          type="button"
+                          onClick={() => setSelectedT4mspArea(selectedT4mspArea === area.id ? null : area.id)}
+                          style={{
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center',
+                            padding: '6px 10px',
+                            border: 'none',
+                            borderBottom: '1px solid var(--modal-divider)',
+                            background: selectedT4mspArea === area.id ? 'rgba(10,132,255,0.14)' : 'transparent',
+                            color: selectedT4mspArea === area.id ? '#64d2ff' : 'var(--text-secondary)',
+                            fontSize: 12,
+                            cursor: 'pointer',
+                            textAlign: 'left',
+                            width: '100%',
+                          }}
+                        >
+                          <span>{area.label}</span>
+                          {selectedT4mspArea === area.id && <span style={{ fontSize: 10 }}>✓</span>}
+                        </button>
+                      ))}
+                      {filteredAreas.length === 0 && (
+                        <Text size="xs" c="dimmed" ta="center" p="sm">···</Text>
+                      )}
+                    </Stack>
+                  </ScrollArea>
+                </Stack>
+              )}
+
+              {/* ── Tipo di pressione ─────────────────────────── */}
+              <Text size="xs" fw={600} c="dimmed" tt="uppercase" style={{ letterSpacing: '0.05em' }}>
+                {p.sectionPressure}
+              </Text>
+              <SimpleGrid cols={2} spacing="xs">
+                {PRESSURES.map(pr => (
+                  <Button
+                    key={pr.key}
+                    size="xs"
+                    variant={pressure === pr.key ? 'filled' : 'light'}
+                    color="blue"
+                    onClick={() => setPressure(pr.key)}
+                  >
+                    {p.pressures[pr.key]}
+                  </Button>
+                ))}
+              </SimpleGrid>
+
+              {/* ── Parametri ──────────────────────────────────── */}
+              <TextInput
+                type="date"
+                size="xs"
+                label={p.labelStart}
+                value={startDate}
+                onChange={e => setStartDate(e.target.value)}
+                styles={LABEL_STYLES}
+              />
+              <Group grow gap="xs">
+                <TextInput
+                  type="number"
+                  size="xs"
+                  label={p.labelDuration}
+                  value={durationDays}
+                  min="1"
+                  max="730"
+                  onChange={e => setDurationDays(e.target.value)}
+                  styles={LABEL_STYLES}
+                />
+                <TextInput
+                  type="number"
+                  size="xs"
+                  label={p.labelParticles}
+                  value={pnum}
+                  min="10"
+                  max="100000"
+                  onChange={e => setPnum(e.target.value)}
+                  styles={LABEL_STYLES}
+                />
+              </Group>
+              <NativeSelect
+                size="xs"
+                label={p.labelTimeStep}
+                value={timeStepHours}
+                onChange={e => setTimeStepHours(e.target.value)}
+                data={TIME_STEPS}
+                styles={LABEL_STYLES}
+              />
+              <TextInput
+                type="number"
+                size="xs"
+                label={p.labelCmemsMargin}
+                value={cmemsMargin}
+                min="0"
+                max="20"
+                step="any"
+                onChange={e => setCmemsMargin(e.target.value)}
+                styles={LABEL_STYLES}
+              />
+
+              <Text
+                size="10px"
+                c={ncColor}
+                p="xs"
+                style={{ background: ncBg, borderRadius: 6, borderLeft: `2px solid ${ncBorder}`, lineHeight: 1.4 }}
+              >
+                {p.ncSizeHint.replace('{size}', formatNcSize(ncEstimateBytes))}
+              </Text>
+
+              <Button
+                size="sm"
+                color="blue"
+                fullWidth
+                disabled={!canPrecompute}
+                onClick={handleCustomCompute}
+                type="button"
+              >
+                {customJob ? p.btnPrecomputing : p.btnPrecompute}
+              </Button>
+
+              {customPrecomputeError && (
+                <Text size="xs" c="red.4" ta="center">{customPrecomputeError}</Text>
+              )}
+            </Stack>
+          </Tabs.Panel>
+
+          {/* ══════════════════════════════════════════════════════════ */}
+          {/* ── TAB ANALISI ─────────────────────────────────────────── */}
+          {/* ══════════════════════════════════════════════════════════ */}
+          <Tabs.Panel value="scenario">
+            <Stack gap="sm" pt="sm">
+
+              {/* ── Info simulazione selezionata ─────────────── */}
+              {(() => {
+                const sc = scenarioStatuses[scenarioId]
+                if (!sc || sc.status !== 'ready') {
+                  return <Text size="xs" c="dimmed" ta="center">{p.hintNoScenario}</Text>
+                }
+                const areaName = lang === 'it'
+                  ? (sc.area_it || p.areaUndefined)
+                  : (sc.area_en || p.areaUndefined)
+                const isCustomArea = areaName === 'Area personalizzata' || areaName === 'Custom area'
+                return (
+                  <Paper p="xs" radius="sm" style={{ background: 'var(--modal-bg)', border: '1px solid var(--modal-divider)' }}>
+                    <Stack gap={4}>
+                      {[
+                        [p.seedAreaName,    isCustomArea ? p.areaUndefined : areaName],
+                        [p.sectionPressure, p.pressures[sc.pressure]],
+                        [p.labelStart,      sc.start_time],
+                        [p.labelDuration,   `${sc.duration_days} d`],
+                        [p.labelParticles,  sc.pnum?.toLocaleString()],
+                        [p.labelTimeStep,   `${sc.time_step_hours} h`],
+                      ].map(([label, val]) => (
+                        <Group key={label} justify="space-between" gap="xs">
+                          <Text size="10px" c="dimmed">{label}</Text>
+                          <Text size="10px" c="gray.3" fw={500}>{val}</Text>
+                        </Group>
+                      ))}
+                      {sc.description && (
+                        <Text size="10px" c="dimmed" mt={4} style={{ borderTop: '1px solid var(--modal-divider)', paddingTop: 4, lineHeight: 1.5 }}>
+                          {sc.description}
+                        </Text>
+                      )}
+                    </Stack>
+                  </Paper>
+                )
+              })()}
+
+              {/* ── Layer sorgente ────────────────────────────── */}
+              <Text size="xs" fw={600} c="dimmed" tt="uppercase" style={{ letterSpacing: '0.05em' }}>
+                {p.sectionUse}
+              </Text>
+              <SimpleGrid cols={2} spacing="xs">
+                {USE_SOURCES.map(u => (
+                  <Button
+                    key={u.key}
+                    size="xs"
+                    variant={useSource === u.key ? 'filled' : 'light'}
+                    color="blue"
+                    onClick={() => onUseSourceChange(u.key)}
+                  >
+                    {u.key === 'windfarms' && windfarmsLoading ? '...'
+                      : u.key === 'offshore_installations' && offshoreLoading ? '...'
+                      : p.useSources[u.key]}
+                  </Button>
+                ))}
+              </SimpleGrid>
+
+              {useSource === 'windfarms' && !windfarmsEmpty && (
+                <Text size="xs" c="blue.4" p="xs" style={{ background: 'rgba(10,132,255,0.07)', borderRadius: 6, borderLeft: '2px solid rgba(10,132,255,0.45)' }}>
+                  {p.useWindfarmsInfo}
+                </Text>
+              )}
+              {useSource === 'windfarms' && windfarmsEmpty && (
+                <Text size="xs" c="red.4" p="xs" style={{ background: 'rgba(239,68,68,0.07)', borderRadius: 6, borderLeft: '2px solid rgba(239,68,68,0.4)' }}>
+                  {p.useWindfarmsEmpty}
+                </Text>
+              )}
+              {useSource === 'offshore_installations' && !offshoreEmpty && (
+                <Text size="xs" c="blue.4" p="xs" style={{ background: 'rgba(10,132,255,0.07)', borderRadius: 6, borderLeft: '2px solid rgba(10,132,255,0.45)' }}>
+                  {p.useOffshoreInfo}
+                </Text>
+              )}
+              {useSource === 'offshore_installations' && offshoreEmpty && (
+                <Text size="xs" c="red.4" p="xs" style={{ background: 'rgba(239,68,68,0.07)', borderRadius: 6, borderLeft: '2px solid rgba(239,68,68,0.4)' }}>
+                  {p.useOffshoreEmpty}
+                </Text>
+              )}
+
+              {useSource === 'geotiff' && (
+                <Stack gap="xs">
+                  <Button
+                    size="xs"
+                    variant="light"
+                    color="blue"
+                    fullWidth
+                    onClick={() => geotiffRef.current?.click()}
+                    style={{ height: 'auto', padding: '12px 8px' }}
+                    type="button"
+                  >
+                    <input ref={geotiffRef} type="file" accept=".tif,.tiff" style={{ display: 'none' }} onChange={handleGeotiffChange} />
+                    {geotiffB64
+                      ? <Text size="xs">{geotiffName}</Text>
+                      : <Text size="xs" c="dimmed">{p.geotiffUploadHint}</Text>}
+                  </Button>
+                  <Text size="xs" c="dimmed" ta="center">{p.geotiffOrLabel}</Text>
+                  <TextInput
+                    type="url"
+                    size="xs"
+                    placeholder={p.geotiffUrlHint}
+                    value={geotiffUrl}
+                    onChange={e => setGeotiffUrl(e.target.value)}
+                  />
+                </Stack>
+              )}
+
+              {/* ── Risoluzione + Margine ─────────────────────── */}
+              <NativeSelect
+                size="xs"
+                label={p.labelRes}
+                value={res}
+                onChange={e => setRes(e.target.value)}
+                data={RESOLUTIONS}
+                styles={LABEL_STYLES}
+              />
+              <TextInput
+                type="number"
+                size="xs"
+                label={p.labelMargin}
+                value={margin}
+                min="0"
+                max="20"
+                step="any"
+                onChange={e => setMargin(e.target.value)}
+                styles={LABEL_STYLES}
+              />
+
+              <Button size="sm" color="blue" fullWidth type="submit" disabled={!canSubmit}>
+                {loading ? p.btnRunning : p.btnRun}
+              </Button>
+
+              {status && (
+                <Text size="xs" ta="center" c={statusType === 'error' ? 'red.4' : statusType === 'ok' ? 'green.4' : 'dimmed'}>
+                  {status}
+                </Text>
+              )}
+            </Stack>
+          </Tabs.Panel>
+        </Tabs>
+      </Stack>
     </form>
   )
 }

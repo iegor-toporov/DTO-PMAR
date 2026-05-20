@@ -1,6 +1,10 @@
 import { forwardRef, useLayoutEffect, useRef } from 'react'
+import { Paper, Group, ActionIcon, Text, Box, Slider } from '@mantine/core'
+import { IconX } from '@tabler/icons-react'
 import { useLang } from '../LanguageContext'
-import './PmarThreshold.css'
+
+const MODAL_BG     = 'var(--modal-bg)'
+const MODAL_BORDER = '1px solid var(--modal-border)'
 
 // ── Value formatter ───────────────────────────────────────────────────────────
 
@@ -89,52 +93,76 @@ export const PmarThresholdModal = forwardRef(function PmarThresholdModal(
   }
 
   return (
-    <div ref={ref} className="pmar-threshold-modal">
-      <div className="pmar-threshold-header" onMouseDown={onHeaderMouseDown}>
-        <span className="pmar-threshold-title">{c.thresholdTitle}</span>
-        <button className="pmar-threshold-close" onClick={onClose}>×</button>
-      </div>
+    <Paper
+      ref={ref}
+      shadow="xl"
+      radius="md"
+      p={0}
+      style={{
+        position: 'fixed',
+        zIndex: 1000,
+        minWidth: 220,
+        minHeight: 160,
+        resize: 'both',
+        overflow: 'hidden',
+        background: MODAL_BG,
+        border: MODAL_BORDER,
+        backdropFilter: 'blur(20px) saturate(180%)',
+        WebkitBackdropFilter: 'blur(20px) saturate(180%)',
+      }}
+    >
+      <Group
+        justify="space-between"
+        align="center"
+        px="sm"
+        py={6}
+        style={{ borderBottom: '1px solid var(--modal-divider)', cursor: 'grab', userSelect: 'none' }}
+        onMouseDown={onHeaderMouseDown}
+      >
+        <Text size="xs" fw={600} tt="uppercase" c="dimmed" style={{ letterSpacing: '0.06em' }}>
+          {c.thresholdTitle}
+        </Text>
+        <ActionIcon size="xs" variant="subtle" c="dimmed" onClick={onClose}>
+          <IconX size={13} />
+        </ActionIcon>
+      </Group>
 
-      {values.length === 0 ? (
-        <p className="pmar-threshold-nodata">{c.statsNoData}</p>
-      ) : (
-        <>
-          <input
-            type="range"
-            min={0}
-            max={1000}
-            defaultValue={500}
-            className="pmar-threshold-slider"
-            onChange={e => updateDom(Number(e.target.value))}
-          />
-          <table className="pmar-threshold-table">
-            <tbody>
-              <tr>
-                <td className="pmar-threshold-label">{c.thresholdAbove}</td>
-                <td className="pmar-threshold-value"><span ref={threshRef}>—</span></td>
-              </tr>
-              <tr>
-                <td className="pmar-threshold-label">{c.thresholdCells}</td>
-                <td className="pmar-threshold-value"><span ref={cellsRef}>—</span></td>
-              </tr>
-              <tr>
-                <td className="pmar-threshold-label">{c.thresholdArea}</td>
-                <td className="pmar-threshold-value">
-                  <span ref={areaRef}>—</span>
-                  <span className="pmar-threshold-unit"> km²</span>
-                </td>
-              </tr>
-              <tr>
-                <td className="pmar-threshold-label">{c.thresholdPct}</td>
-                <td className="pmar-threshold-value">
-                  <span ref={pctRef}>—</span>
-                  <span className="pmar-threshold-unit"> %</span>
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </>
-      )}
-    </div>
+      <Box px="sm" pt="xs" pb={6}>
+        {values.length === 0 ? (
+          <Text size="xs" c="dimmed" ta="center" py="md">{c.statsNoData}</Text>
+        ) : (
+          <>
+            <Slider
+              min={0}
+              max={1000}
+              defaultValue={500}
+              color="blue"
+              size="sm"
+              mb="sm"
+              onChange={val => updateDom(val)}
+              label={null}
+            />
+            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+              <tbody>
+                {[
+                  [c.thresholdAbove, threshRef, ''],
+                  [c.thresholdCells, cellsRef,  ''],
+                  [c.thresholdArea,  areaRef,   ' km²'],
+                  [c.thresholdPct,   pctRef,    ' %'],
+                ].map(([label, valueRef, unit]) => (
+                  <tr key={label}>
+                    <td style={{ padding: '2px 8px 2px 0', fontSize: 11, color: 'var(--text-secondary)' }}>{label}</td>
+                    <td style={{ padding: '2px 0', fontSize: 11, fontWeight: 600, color: 'var(--text-primary)', textAlign: 'right', fontFamily: '"SF Mono", ui-monospace, monospace' }}>
+                      <span ref={valueRef}>—</span>
+                      <span style={{ opacity: 0.6 }}>{unit}</span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </>
+        )}
+      </Box>
+    </Paper>
   )
 })

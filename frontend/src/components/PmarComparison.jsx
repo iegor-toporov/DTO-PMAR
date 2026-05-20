@@ -1,8 +1,12 @@
 import { forwardRef, useLayoutEffect, useRef } from 'react'
+import { Paper, Group, ActionIcon, Button, Text, Box, ColorSwatch } from '@mantine/core'
+import { IconX, IconDownload } from '@tabler/icons-react'
 import { useLang } from '../LanguageContext'
-import './PmarComparison.css'
 
-export const AREA_COLORS = ['#f46d43', '#4575b4', '#1a9850', '#9e66ab', '#d73027', '#fc8d59', '#74add1', '#a6d854']
+const MODAL_BG     = 'var(--modal-bg)'
+const MODAL_BORDER = '1px solid var(--modal-border)'
+
+export const AREA_COLORS = ['#0a84ff', '#30d158', '#ff9f0a', '#bf5af2', '#ff453a', '#64d2ff', '#ffd60a', '#ff375f']
 
 // ── Multi-area grouped histogram SVG ─────────────────────────────────────────
 // Each bin has N side-by-side sub-bars (one per area). The viewBox width grows
@@ -23,9 +27,9 @@ function ComparisonSVG({ results, mapTheme, svgRef }) {
   const globalLogMax = Math.max(...results.map(r => r.logMax))
   const logRange     = globalLogMax - globalLogMin
 
-  const textColor = mapTheme === 'light' ? '#1e293b' : '#e2e8f0'
-  const gridColor = mapTheme === 'light' ? '#cbd5e1' : '#334155'
-  const bgColor   = mapTheme === 'light' ? '#f8fafc' : '#1e293b'
+  const textColor = mapTheme === 'light' ? '#1c1c1e' : 'rgba(235,235,245,0.86)'
+  const gridColor = mapTheme === 'light' ? 'rgba(0,0,0,0.10)' : 'rgba(255,255,255,0.08)'
+  const bgColor   = mapTheme === 'light' ? '#f2f2f7' : '#2c2c2e'
 
   const bars = []
   results.forEach((result, aIdx) => {
@@ -175,13 +179,10 @@ export const PmarComparisonModal = forwardRef(function PmarComparisonModal(
   function downloadPng() {
     const svg = svgRef.current
     if (!svg || !results.length) return
-    // Use viewBox dimensions so the PNG reflects the full chart width,
-    // not the (possibly compressed) on-screen rendering width.
     const vb = svg.viewBox.baseVal
     const pw = vb.width, ph = vb.height
     const SCALE = 2
 
-    // Legend layout (CSS px)
     const padH    = 12
     const padVTop = 10
     const padVBot = 8
@@ -192,23 +193,21 @@ export const PmarComparisonModal = forwardRef(function PmarComparisonModal(
     const legendH = padVTop + results.length * rowH + (results.length - 1) * rowGap + padVBot
 
     const isDark    = mapTheme !== 'light'
-    const bg        = isDark ? '#1e293b' : '#f8fafc'
-    const textColor = isDark ? '#e2e8f0' : '#1e293b'
+    const bg        = isDark ? '#2c2c2e' : '#ffffff'
+    const textColor = isDark ? '#ffffff' : '#1c1c1e'
 
     const canvas = document.createElement('canvas')
     canvas.width  = pw * SCALE
     canvas.height = (legendH + ph) * SCALE
     const ctx = canvas.getContext('2d')
 
-    // Legend background
     ctx.fillStyle = bg
     ctx.fillRect(0, 0, pw * SCALE, legendH * SCALE)
 
-    // Legend rows
     ctx.textBaseline = 'middle'
     ctx.font = `${11 * SCALE}px system-ui, -apple-system, sans-serif`
     results.forEach((r, i) => {
-      const rowTop   = padVTop + i * (rowH + rowGap)
+      const rowTop    = padVTop + i * (rowH + rowGap)
       const swatchTop = rowTop + (rowH - swatchS) / 2
       ctx.fillStyle   = AREA_COLORS[i % AREA_COLORS.length]
       ctx.globalAlpha = 0.85
@@ -222,7 +221,6 @@ export const PmarComparisonModal = forwardRef(function PmarComparisonModal(
       )
     })
 
-    // Chart SVG below legend
     const clone = svg.cloneNode(true)
     clone.setAttribute('width',  pw)
     clone.setAttribute('height', ph)
@@ -248,41 +246,81 @@ export const PmarComparisonModal = forwardRef(function PmarComparisonModal(
   const hasChart = results.length >= 2
 
   return (
-    <div ref={ref} className="pmar-comparison-modal">
-      <div className="pmar-comparison-header" onMouseDown={onHeaderMouseDown}>
-        <span className="pmar-comparison-title">{c.comparisonTitle}</span>
-        <button className="pmar-comparison-close" onClick={onClose}>×</button>
-      </div>
+    <Paper
+      ref={ref}
+      shadow="xl"
+      radius="md"
+      p={0}
+      style={{
+        position: 'fixed',
+        zIndex: 1000,
+        width: 440,
+        minWidth: 260,
+        minHeight: 160,
+        resize: 'both',
+        overflow: 'hidden',
+        background: MODAL_BG,
+        border: MODAL_BORDER,
+        backdropFilter: 'blur(20px) saturate(180%)',
+        WebkitBackdropFilter: 'blur(20px) saturate(180%)',
+      }}
+    >
+      <Group
+        justify="space-between"
+        align="center"
+        px="sm"
+        py={6}
+        style={{ borderBottom: '1px solid var(--modal-divider)', cursor: 'grab', userSelect: 'none' }}
+        onMouseDown={onHeaderMouseDown}
+      >
+        <Text size="xs" fw={600} tt="uppercase" c="dimmed" style={{ letterSpacing: '0.06em' }}>
+          {c.comparisonTitle}
+        </Text>
+        <ActionIcon size="xs" variant="subtle" c="dimmed" onClick={onClose}>
+          <IconX size={13} />
+        </ActionIcon>
+      </Group>
 
-      {results.length === 0 ? (
-        <p className="pmar-comparison-nodata">{c.comparisonAddHint}</p>
-      ) : (
-        <div className="pmar-comparison-legend">
-          {results.map((r, i) => (
-            <div key={i} className="pmar-comparison-legend-row">
-              <span className="pmar-comparison-swatch"
-                    style={{ background: AREA_COLORS[i % AREA_COLORS.length] }} />
-              <span className="pmar-comparison-area-label">
-                {String.fromCharCode(65 + i)} — {r.total.toLocaleString()} cells · {fmtArea(r)}
-              </span>
-              <button className="pmar-comparison-remove" onClick={() => onRemoveArea(i)}>×</button>
-            </div>
-          ))}
-        </div>
-      )}
+      <Box px="sm" pt="xs" pb={6}>
+        {results.length === 0 ? (
+          <Text size="xs" c="dimmed" ta="center" py="md">{c.comparisonAddHint}</Text>
+        ) : (
+          <Box mb="xs">
+            {results.map((r, i) => (
+              <Group key={i} gap="xs" mb={4} wrap="nowrap">
+                <ColorSwatch color={AREA_COLORS[i % AREA_COLORS.length]} size={10} />
+                <Text size="10px" style={{ flex: 1 }}>
+                  {String.fromCharCode(65 + i)} — {r.total.toLocaleString()} cells · {fmtArea(r)}
+                </Text>
+                <ActionIcon size="xs" variant="subtle" c="dimmed" onClick={() => onRemoveArea(i)}>
+                  <IconX size={11} />
+                </ActionIcon>
+              </Group>
+            ))}
+          </Box>
+        )}
 
-      {results.length === 1 && (
-        <p className="pmar-comparison-nodata">{c.comparisonNeedMore}</p>
-      )}
+        {results.length === 1 && (
+          <Text size="xs" c="dimmed" ta="center" mb="xs">{c.comparisonNeedMore}</Text>
+        )}
 
-      {hasChart && (
-        <>
-          <ComparisonSVG results={results} mapTheme={mapTheme} svgRef={svgRef} />
-          <button className="pmar-comparison-download" onClick={downloadPng}>
-            ⬇ {c.comparisonDownload}
-          </button>
-        </>
-      )}
-    </div>
+        {hasChart && (
+          <>
+            <ComparisonSVG results={results} mapTheme={mapTheme} svgRef={svgRef} />
+            <Button
+              fullWidth
+              size="xs"
+              variant="light"
+              color="blue"
+              mt="xs"
+              leftSection={<IconDownload size={12} />}
+              onClick={downloadPng}
+            >
+              {c.comparisonDownload}
+            </Button>
+          </>
+        )}
+      </Box>
+    </Paper>
   )
 })

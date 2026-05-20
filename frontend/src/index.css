@@ -1,11 +1,20 @@
-* { margin: 0; padding: 0; box-sizing: border-box; }
+*, *::before, *::after {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", system-ui, sans-serif;
+}
+
+/* Form elements do not inherit font-family by default in all browsers */
+button, input, optgroup, select, textarea {
+  font-family: inherit;
+}
 
 body {
-  font-family: system-ui, -apple-system, sans-serif;
-  background: #0f172a;
-  color: #e2e8f0;
   height: 100vh;
   overflow: hidden;
+  /* Background managed by data-mantine-color-scheme rules in App.css */
+  background: #1c1c1e;
 }
 
 #root {

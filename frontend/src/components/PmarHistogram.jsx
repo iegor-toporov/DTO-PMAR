@@ -1,8 +1,12 @@
 import { forwardRef, useEffect, useLayoutEffect, useRef } from 'react'
 import { useMap, useMapEvents } from 'react-leaflet'
 import L from 'leaflet'
+import { Paper, Group, ActionIcon, Button, Text, Box } from '@mantine/core'
+import { IconX, IconDownload } from '@tabler/icons-react'
 import { useLang } from '../LanguageContext'
-import './PmarHistogram.css'
+
+const MODAL_BG     = 'var(--modal-bg)'
+const MODAL_BORDER = '1px solid var(--modal-border)'
 
 // ── Histogram computation ─────────────────────────────────────────────────────
 
@@ -71,7 +75,6 @@ export function HistogramDrawLayer({ active, rasterData, onResult }) {
   useEffect(() => { rasterRef.current   = rasterData }, [rasterData])
   useEffect(() => { onResultRef.current = onResult   }, [onResult])
 
-  // Only the rectangle currently being drawn — confirmed layers are owned by the caller
   const inProgressRef = useRef(null)
   const stateRef = useRef({ drawing: false, start: null })
 
@@ -118,7 +121,7 @@ export function HistogramDrawLayer({ active, rasterData, onResult }) {
         inProgressRef.current.setBounds(snappedBounds)
       } else {
         inProgressRef.current = L.rectangle(snappedBounds, {
-          color: '#f97316', fillColor: '#fdba74',
+          color: '#0a84ff', fillColor: '#64d2ff',
           fillOpacity: 0.15, weight: 2, dashArray: '5 4',
         }).addTo(map)
       }
@@ -140,7 +143,6 @@ export function HistogramDrawLayer({ active, rasterData, onResult }) {
       if (colMax < colMin || rowMax < rowMin) { clearInProgress(); return }
 
       inProgressRef.current?.setStyle({ dashArray: null, fillOpacity: 0.10 })
-      // Transfer ownership of this layer to the caller (managed via onResult)
       const confirmedLayer = inProgressRef.current
       inProgressRef.current = null
 
@@ -173,11 +175,10 @@ function HistogramSVG({ result, mapTheme, svgRef }) {
   const barW = pw / nBins
   const maxBin = Math.max(...bins, 1)
 
-  const textColor = mapTheme === 'light' ? '#1e293b' : '#e2e8f0'
-  const gridColor = mapTheme === 'light' ? '#cbd5e1' : '#334155'
-  const bgColor   = mapTheme === 'light' ? '#f8fafc' : '#1e293b'
+  const textColor = mapTheme === 'light' ? '#1c1c1e' : 'rgba(235,235,245,0.86)'
+  const gridColor = mapTheme === 'light' ? 'rgba(0,0,0,0.10)' : 'rgba(255,255,255,0.08)'
+  const bgColor   = mapTheme === 'light' ? '#f2f2f7' : '#2c2c2e'
 
-  // X tick at each integer log10 within range
   const xTicks = []
   for (let exp = Math.ceil(logMin); exp <= Math.floor(logMax); exp++) {
     const x = mx.left + ((exp - logMin) / (logMax - logMin)) * pw
@@ -217,7 +218,7 @@ function HistogramSVG({ result, mapTheme, svgRef }) {
                 y={mx.top + ph - bh}
                 width={Math.max(0, barW - 1)}
                 height={bh}
-                fill="#f46d43" opacity="0.85" />
+                fill="#0a84ff" opacity="0.85" />
         )
       })}
 
@@ -276,8 +277,6 @@ export const PmarHistogramModal = forwardRef(function PmarHistogramModal({ resul
   const svgRef = useRef(null)
   const dragRef = useRef({ dragging: false, startX: 0, startY: 0, dx: 0, dy: 0 })
 
-  // Convert CSS bottom/right positioning to top/left before first paint so that
-  // the native SE resize handle (resize: both) follows the mouse naturally.
   useLayoutEffect(() => {
     const el = ref?.current
     if (!el) return
@@ -353,34 +352,73 @@ export const PmarHistogramModal = forwardRef(function PmarHistogramModal({ resul
   }
 
   return (
-    <div ref={ref} className="pmar-histogram-modal">
-      <div className="pmar-histogram-header" onMouseDown={onHeaderMouseDown}>
-        <span className="pmar-histogram-title">{c.histogramTitle}</span>
-        <button className="pmar-histogram-close" onClick={onClose} title="Chiudi">×</button>
-      </div>
+    <Paper
+      ref={ref}
+      shadow="xl"
+      radius="md"
+      p={0}
+      style={{
+        position: 'fixed',
+        zIndex: 1000,
+        width: 392,
+        minWidth: 260,
+        minHeight: 160,
+        resize: 'both',
+        overflow: 'hidden',
+        background: MODAL_BG,
+        border: MODAL_BORDER,
+        backdropFilter: 'blur(20px) saturate(180%)',
+        WebkitBackdropFilter: 'blur(20px) saturate(180%)',
+      }}
+    >
+      <Group
+        justify="space-between"
+        align="center"
+        px="sm"
+        py={6}
+        style={{ borderBottom: '1px solid var(--modal-divider)', cursor: 'grab', userSelect: 'none' }}
+        onMouseDown={onHeaderMouseDown}
+      >
+        <Text size="xs" fw={600} tt="uppercase" c="dimmed" style={{ letterSpacing: '0.06em' }}>
+          {c.histogramTitle}
+        </Text>
+        <ActionIcon size="xs" variant="subtle" c="dimmed" onClick={onClose}>
+          <IconX size={13} />
+        </ActionIcon>
+      </Group>
 
-      {result.total === 0 ? (
-        <p className="pmar-histogram-nodata">{c.histogramNoData}</p>
-      ) : (
-        <>
-          <div className="pmar-histogram-stats">
-            <span>{result.total.toLocaleString()} {c.histogramCells}</span>
-            <span className="pmar-histogram-sep">·</span>
-            <span>{areaStr}</span>
-            <span className="pmar-histogram-sep">·</span>
-            <span>min {formatVal(result.valMin)}</span>
-            <span className="pmar-histogram-sep">·</span>
-            <span>max {formatVal(result.valMax)}</span>
-            <span className="pmar-histogram-sep">·</span>
-            <span>μ {formatVal(result.mean)}</span>
-          </div>
-          <HistogramSVG result={result} mapTheme={mapTheme} svgRef={svgRef} />
-          <button className="pmar-histogram-download" onClick={downloadPng}>
-            ⬇ {c.histogramDownload}
-          </button>
-        </>
-      )}
-    </div>
+      <Box px="sm" pt="xs" pb={6}>
+        {result.total === 0 ? (
+          <Text size="xs" c="dimmed" ta="center" py="md">{c.histogramNoData}</Text>
+        ) : (
+          <>
+            <Group gap={4} wrap="wrap" mb="xs" style={{ opacity: 0.65 }}>
+              <Text size="10px">{result.total.toLocaleString()} {c.histogramCells}</Text>
+              <Text size="10px" c="dimmed">·</Text>
+              <Text size="10px">{areaStr}</Text>
+              <Text size="10px" c="dimmed">·</Text>
+              <Text size="10px">min {formatVal(result.valMin)}</Text>
+              <Text size="10px" c="dimmed">·</Text>
+              <Text size="10px">max {formatVal(result.valMax)}</Text>
+              <Text size="10px" c="dimmed">·</Text>
+              <Text size="10px">μ {formatVal(result.mean)}</Text>
+            </Group>
+            <HistogramSVG result={result} mapTheme={mapTheme} svgRef={svgRef} />
+            <Button
+              fullWidth
+              size="xs"
+              variant="light"
+              color="blue"
+              mt="xs"
+              leftSection={<IconDownload size={12} />}
+              onClick={downloadPng}
+            >
+              {c.histogramDownload}
+            </Button>
+          </>
+        )}
+      </Box>
+    </Paper>
   )
 })
 
@@ -415,10 +453,10 @@ export function ConnectorLine({ result, mapRef, modalRef }) {
       const mapRect   = map.getContainer().getBoundingClientRect()
       const modalRect = modal.getBoundingClientRect()
       const modCorners = [
-        { x: modalRect.left - mapRect.left,                   y: modalRect.top - mapRect.top },
-        { x: modalRect.right - mapRect.left,                  y: modalRect.top - mapRect.top },
-        { x: modalRect.left - mapRect.left,                   y: modalRect.bottom - mapRect.top },
-        { x: modalRect.right - mapRect.left,                  y: modalRect.bottom - mapRect.top },
+        { x: modalRect.left - mapRect.left,  y: modalRect.top - mapRect.top },
+        { x: modalRect.right - mapRect.left, y: modalRect.top - mapRect.top },
+        { x: modalRect.left - mapRect.left,  y: modalRect.bottom - mapRect.top },
+        { x: modalRect.right - mapRect.left, y: modalRect.bottom - mapRect.top },
       ]
 
       let best = Infinity, bS, bM
@@ -449,7 +487,7 @@ export function ConnectorLine({ result, mapRef, modalRef }) {
          xmlns="http://www.w3.org/2000/svg"
          style={{ position: 'absolute', inset: 0, pointerEvents: 'none', zIndex: 999 }}>
       <line ref={lineRef}
-            stroke="#f97316" strokeWidth="1.5" strokeDasharray="5 4" opacity="0.75" />
+            stroke="#0a84ff" strokeWidth="1.5" strokeDasharray="5 4" opacity="0.5" />
     </svg>
   )
 }
@@ -506,7 +544,7 @@ export function RectSelectionLayer({ active, rasterData, onResult }) {
       const bounds = [[snapLatMin, snapLonMin], [snapLatMax, snapLonMax]]
       if (inProgressRef.current) inProgressRef.current.setBounds(bounds)
       else inProgressRef.current = L.rectangle(bounds, {
-        color: '#f97316', fillColor: '#fdba74', fillOpacity: 0.15, weight: 2, dashArray: '5 4',
+        color: '#0a84ff', fillColor: '#64d2ff', fillOpacity: 0.15, weight: 2, dashArray: '5 4',
       }).addTo(map)
     },
     mouseup(e) {
@@ -583,7 +621,7 @@ export function LineSelectionLayer({ active, onResult }) {
       const latlngs = [[latA, lonA], [e.latlng.lat, e.latlng.lng]]
       if (inProgressRef.current) inProgressRef.current.setLatLngs(latlngs)
       else inProgressRef.current = L.polyline(latlngs, {
-        color: '#f97316', weight: 2.5, dashArray: '6 4',
+        color: '#0a84ff', weight: 2.5, dashArray: '6 4',
       }).addTo(map)
     },
     mouseup(e) {

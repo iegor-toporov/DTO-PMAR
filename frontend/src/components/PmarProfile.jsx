@@ -1,6 +1,10 @@
 import { forwardRef, useLayoutEffect, useRef } from 'react'
+import { Paper, Group, ActionIcon, Button, Text, Box } from '@mantine/core'
+import { IconX, IconDownload } from '@tabler/icons-react'
 import { useLang } from '../LanguageContext'
-import './PmarProfile.css'
+
+const MODAL_BG     = 'var(--modal-bg)'
+const MODAL_BORDER = '1px solid var(--modal-border)'
 
 // ── Profile sampling ──────────────────────────────────────────────────────────
 
@@ -33,9 +37,9 @@ function ProfileSVG({ result, mapTheme, svgRef }) {
   const pw  = W - mx.left - mx.right
   const ph  = H - mx.top  - mx.bottom
 
-  const textColor = mapTheme === 'light' ? '#1e293b' : '#e2e8f0'
-  const gridColor = mapTheme === 'light' ? '#cbd5e1' : '#334155'
-  const bgColor   = mapTheme === 'light' ? '#f8fafc' : '#1e293b'
+  const textColor = mapTheme === 'light' ? '#1c1c1e' : 'rgba(235,235,245,0.86)'
+  const gridColor = mapTheme === 'light' ? 'rgba(0,0,0,0.10)' : 'rgba(255,255,255,0.08)'
+  const bgColor   = mapTheme === 'light' ? '#f2f2f7' : '#2c2c2e'
 
   const posValues = pts.map(p => p.value).filter(v => v > 0 && isFinite(v))
   const logMin = posValues.length ? Math.log10(Math.min(...posValues)) : 0
@@ -83,7 +87,7 @@ function ProfileSVG({ result, mapTheme, svgRef }) {
       })}
 
       {/* profile line */}
-      {d && <path d={d} stroke="#f97316" strokeWidth={2} fill="none" />}
+      {d && <path d={d} stroke="#0a84ff" strokeWidth={2} fill="none" />}
 
       {/* axes */}
       <line x1={mx.left} x2={mx.left + pw} y1={mx.top + ph} y2={mx.top + ph}
@@ -116,7 +120,7 @@ function ProfileSVG({ result, mapTheme, svgRef }) {
             fontSize={9} fill={textColor}>dist. (km)</text>
       <text x={10} y={mx.top + ph / 2} textAnchor="middle"
             fontSize={9} fill={textColor}
-            transform={`rotate(-90 10 ${mx.top + ph / 2})`}>value (log₁₀)</text>
+            transform={`rotate(-90 10 ${mx.top + ph / 2})`}>value (log&#x2081;&#x2080;)</text>
     </svg>
   )
 }
@@ -197,22 +201,61 @@ export const PmarProfileModal = forwardRef(function PmarProfileModal(
   }
 
   return (
-    <div ref={ref} className="pmar-profile-modal">
-      <div className="pmar-profile-header" onMouseDown={onHeaderMouseDown}>
-        <span className="pmar-profile-title">{c.profileTitle}</span>
-        <button className="pmar-profile-close" onClick={onClose}>×</button>
-      </div>
+    <Paper
+      ref={ref}
+      shadow="xl"
+      radius="md"
+      p={0}
+      style={{
+        position: 'fixed',
+        zIndex: 1000,
+        width: 360,
+        minWidth: 260,
+        minHeight: 160,
+        resize: 'both',
+        overflow: 'hidden',
+        background: MODAL_BG,
+        border: MODAL_BORDER,
+        backdropFilter: 'blur(20px) saturate(180%)',
+        WebkitBackdropFilter: 'blur(20px) saturate(180%)',
+      }}
+    >
+      <Group
+        justify="space-between"
+        align="center"
+        px="sm"
+        py={6}
+        style={{ borderBottom: '1px solid var(--modal-divider)', cursor: 'grab', userSelect: 'none' }}
+        onMouseDown={onHeaderMouseDown}
+      >
+        <Text size="xs" fw={600} tt="uppercase" c="dimmed" style={{ letterSpacing: '0.06em' }}>
+          {c.profileTitle}
+        </Text>
+        <ActionIcon size="xs" variant="subtle" c="dimmed" onClick={onClose}>
+          <IconX size={13} />
+        </ActionIcon>
+      </Group>
 
-      {!hasData ? (
-        <p className="pmar-profile-nodata">{c.profileNoData}</p>
-      ) : (
-        <>
-          <ProfileSVG result={result} mapTheme={mapTheme} svgRef={svgRef} />
-          <button className="pmar-profile-download" onClick={downloadPng}>
-            ⬇ {c.profileDownload}
-          </button>
-        </>
-      )}
-    </div>
+      <Box px="sm" pt="xs" pb={6}>
+        {!hasData ? (
+          <Text size="xs" c="dimmed" ta="center" py="md">{c.profileNoData}</Text>
+        ) : (
+          <>
+            <ProfileSVG result={result} mapTheme={mapTheme} svgRef={svgRef} />
+            <Button
+              fullWidth
+              size="xs"
+              variant="light"
+              color="blue"
+              mt="xs"
+              leftSection={<IconDownload size={12} />}
+              onClick={downloadPng}
+            >
+              {c.profileDownload}
+            </Button>
+          </>
+        )}
+      </Box>
+    </Paper>
   )
 })

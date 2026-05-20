@@ -1,6 +1,10 @@
 import { forwardRef, useLayoutEffect, useRef } from 'react'
+import { Paper, Group, ActionIcon, Button, Text, Box } from '@mantine/core'
+import { IconX, IconDownload } from '@tabler/icons-react'
 import { useLang } from '../LanguageContext'
-import './PmarStats.css'
+
+const MODAL_BG     = 'var(--modal-bg)'
+const MODAL_BORDER = '1px solid var(--modal-border)'
 
 // ── Computation ───────────────────────────────────────────────────────────────
 
@@ -57,7 +61,6 @@ export const PmarStatsModal = forwardRef(function PmarStatsModal(
     el.style.right  = 'auto'
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Drag via document (same pattern as PmarHistogramModal)
   useLayoutEffect(() => {
     function onMouseMove(e) {
       if (!dragRef.current.dragging) return
@@ -127,31 +130,69 @@ export const PmarStatsModal = forwardRef(function PmarStatsModal(
   ] : []
 
   return (
-    <div ref={ref} className="pmar-stats-modal">
-      <div className="pmar-stats-header" onMouseDown={onHeaderMouseDown}>
-        <span className="pmar-stats-title">{c.statsTitle}</span>
-        <button className="pmar-stats-close" onClick={onClose}>×</button>
-      </div>
+    <Paper
+      ref={ref}
+      shadow="xl"
+      radius="md"
+      p={0}
+      style={{
+        position: 'fixed',
+        zIndex: 1000,
+        minWidth: 220,
+        minHeight: 160,
+        resize: 'both',
+        overflow: 'hidden',
+        background: MODAL_BG,
+        border: MODAL_BORDER,
+        backdropFilter: 'blur(20px) saturate(180%)',
+        WebkitBackdropFilter: 'blur(20px) saturate(180%)',
+      }}
+    >
+      <Group
+        justify="space-between"
+        align="center"
+        px="sm"
+        py={6}
+        style={{ borderBottom: '1px solid var(--modal-divider)', cursor: 'grab', userSelect: 'none' }}
+        onMouseDown={onHeaderMouseDown}
+      >
+        <Text size="xs" fw={600} tt="uppercase" c="dimmed" style={{ letterSpacing: '0.06em' }}>
+          {c.statsTitle}
+        </Text>
+        <ActionIcon size="xs" variant="subtle" c="dimmed" onClick={onClose}>
+          <IconX size={13} />
+        </ActionIcon>
+      </Group>
 
-      {!result.stats ? (
-        <p className="pmar-stats-nodata">{c.statsNoData}</p>
-      ) : (
-        <>
-          <table className="pmar-stats-table">
-            <tbody>
-              {rows.map(([label, val]) => (
-                <tr key={label}>
-                  <td className="pmar-stats-label">{label}</td>
-                  <td className="pmar-stats-value">{val}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          <button className="pmar-stats-download" onClick={downloadTsv}>
-            ⬇ {c.statsDownload}
-          </button>
-        </>
-      )}
-    </div>
+      <Box px="sm" pt="xs" pb={6}>
+        {!result.stats ? (
+          <Text size="xs" c="dimmed" ta="center" py="md">{c.statsNoData}</Text>
+        ) : (
+          <>
+            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+              <tbody>
+                {rows.map(([label, val]) => (
+                  <tr key={label}>
+                    <td style={{ padding: '2px 8px 2px 0', fontSize: 11, color: 'var(--text-secondary)' }}>{label}</td>
+                    <td style={{ padding: '2px 0', fontSize: 11, fontWeight: 600, color: 'var(--text-primary)', textAlign: 'right', fontFamily: '"SF Mono", ui-monospace, monospace' }}>{val}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            <Button
+              fullWidth
+              size="xs"
+              variant="light"
+              color="blue"
+              mt="xs"
+              leftSection={<IconDownload size={12} />}
+              onClick={downloadTsv}
+            >
+              {c.statsDownload}
+            </Button>
+          </>
+        )}
+      </Box>
+    </Paper>
   )
 })

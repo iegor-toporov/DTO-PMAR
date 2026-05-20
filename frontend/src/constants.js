@@ -1,15 +1,15 @@
 export const MODEL_STYLES = {
-  OceanDrift: { color: '#0ea5e9', fill: '#7dd3fc', traj: '#38bdf8', badge: '#0c4a6e', label: '🌊 Tracciante' },
-  PlastDrift: { color: '#f59e0b', fill: '#fde68a', traj: '#fbbf24', badge: '#451a03', label: '🧴 Plastica'   },
-  LarvalFish: { color: '#22c55e', fill: '#86efac', traj: '#4ade80', badge: '#052e16', label: '🐟 Larve'      },
-  OpenOil:    { color: '#ef4444', fill: '#fca5a5', traj: '#f87171', badge: '#450a0a', label: '🛢️ Petrolio'  },
+  OceanDrift: { color: '#0a84ff', fill: '#74b9ff', traj: '#4d9fff', badge: 'rgba(10,132,255,0.18)',  label: 'Tracer'  },
+  PlastDrift: { color: '#ff9f0a', fill: '#ffcf6e', traj: '#ffb830', badge: 'rgba(255,159,10,0.18)', label: 'Plastic' },
+  LarvalFish: { color: '#30d158', fill: '#86efac', traj: '#5de87a', badge: 'rgba(48,209,88,0.18)',  label: 'Larvae'  },
+  OpenOil:    { color: '#ff453a', fill: '#ff8985', traj: '#ff6c67', badge: 'rgba(255,69,58,0.18)',  label: 'Oil'     },
 }
 
 export const MODELS = [
-  { key: 'OceanDrift', icon: '🌊', name: 'Tracciante',  desc: 'Correnti superficiali'       },
-  { key: 'PlastDrift', icon: '🧴', name: 'Plastica',     desc: 'Con wind drag e Stokes'      },
-  { key: 'LarvalFish', icon: '🐟', name: 'Larve/uova',  desc: 'Galleggiabilità verticale'   },
-  { key: 'OpenOil',    icon: '🛢️', name: 'Idrocarburi', desc: 'Evaporazione ed emulsione'   },
+  { key: 'OceanDrift', name: 'Tracciante',  desc: 'Correnti superficiali'     },
+  { key: 'PlastDrift', name: 'Plastica',    desc: 'Con wind drag e Stokes'    },
+  { key: 'LarvalFish', name: 'Larve/uova', desc: 'Galleggiabilità verticale' },
+  { key: 'OpenOil',    name: 'Idrocarburi', desc: 'Evaporazione ed emulsione' },
 ]
 
 export function defaultStartTime() {

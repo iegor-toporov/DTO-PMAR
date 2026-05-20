@@ -1,5 +1,6 @@
+import { Paper, Group, SegmentedControl, ActionIcon, Tooltip, Text, Divider } from '@mantine/core'
+import { IconEye, IconEyeOff, IconDownload, IconCircle, IconWind, IconDroplet } from '@tabler/icons-react'
 import { useLang } from '../LanguageContext'
-import './PmarControls.css'
 
 const INDICATORS = [
   { key: 'density', labelKey: 'indicatorDensity' },
@@ -29,63 +30,99 @@ export default function PmarControls({
   const c = t.pmarControls
 
   return (
-    <div className={`pmar-controls${elevated ? ' elevated' : ''}`}>
-      <span className="pmar-controls-label">PMAR</span>
+    <Paper
+      shadow="xl"
+      radius="lg"
+      style={{
+        position: 'absolute',
+        bottom: elevated ? 90 : 20,
+        left: '50%',
+        transform: 'translateX(-50%)',
+        zIndex: 1000,
+        background: 'var(--panel-bg)',
+        backdropFilter: 'blur(20px) saturate(180%)',
+        WebkitBackdropFilter: 'blur(20px) saturate(180%)',
+        border: '1px solid var(--panel-border)',
+        boxShadow: '0 4px 24px rgba(0,0,0,0.16)',
+        transition: 'bottom 0.2s',
+      }}
+      px="md"
+      py="xs"
+    >
+      <Group gap="sm" align="center" wrap="nowrap">
+        <Text size="xs" fw={700} c="dimmed" tt="uppercase" style={{ letterSpacing: '0.08em', flexShrink: 0 }}>
+          PMAR
+        </Text>
+        <Divider orientation="vertical" color="var(--modal-divider)" />
 
-      {hasIndicators && (
-        <div className="pmar-indicator-selector">
-          {INDICATORS.map(({ key, labelKey }) => (
-            <button
-              key={key}
-              className={`pmar-indicator-btn${activeIndicator === key ? ' active' : ''}`}
-              onClick={() => onIndicatorChange(key)}
+        {hasIndicators && (
+          <>
+            <SegmentedControl
+              size="xs"
+              value={activeIndicator}
+              onChange={onIndicatorChange}
+              data={INDICATORS.map(({ key, labelKey }) => ({ value: key, label: c[labelKey] }))}
+              color="blue"
+            />
+            <Divider orientation="vertical" color="var(--modal-divider)" />
+          </>
+        )}
+
+        <Tooltip label={showPmarRaster ? c.hideRaster : c.showRaster} withArrow>
+          <ActionIcon
+            size="sm"
+            variant={showPmarRaster ? 'filled' : 'subtle'}
+            color="blue"
+            onClick={onTogglePmarRaster}
+          >
+            {showPmarRaster ? <IconEye size={14} /> : <IconEyeOff size={14} />}
+          </ActionIcon>
+        </Tooltip>
+
+        <Tooltip label={showSeedShape ? c.hideSeed : c.showSeed} withArrow>
+          <ActionIcon
+            size="sm"
+            variant={showSeedShape ? 'filled' : 'subtle'}
+            color="blue"
+            onClick={onToggleSeedShape}
+          >
+            <IconCircle size={14} />
+          </ActionIcon>
+        </Tooltip>
+
+        {hasWindFarms && (
+          <Tooltip label={showWindFarms ? c.hideWindFarms : c.showWindFarms} withArrow>
+            <ActionIcon
+              size="sm"
+              variant={showWindFarms ? 'filled' : 'subtle'}
+              color="blue"
+              onClick={onToggleWindFarms}
             >
-              {c[labelKey]}
-            </button>
-          ))}
-        </div>
-      )}
+              <IconWind size={14} />
+            </ActionIcon>
+          </Tooltip>
+        )}
 
-      <button
-        className={`pmar-toggle-btn${showPmarRaster ? ' active' : ''}`}
-        onClick={onTogglePmarRaster}
-        title={showPmarRaster ? c.hideRaster : c.showRaster}
-      >
-        🟥 {showPmarRaster ? c.hideRaster : c.showRaster}
-      </button>
+        {hasOffshoreInstallations && (
+          <Tooltip label={showOffshoreInstallations ? c.hideOffshore : c.showOffshore} withArrow>
+            <ActionIcon
+              size="sm"
+              variant={showOffshoreInstallations ? 'filled' : 'subtle'}
+              color="blue"
+              onClick={onToggleOffshoreInstallations}
+            >
+              <IconDroplet size={14} />
+            </ActionIcon>
+          </Tooltip>
+        )}
 
-      <button
-        className={`pmar-toggle-btn${showSeedShape ? ' active' : ''}`}
-        onClick={onToggleSeedShape}
-        title={showSeedShape ? c.hideSeed : c.showSeed}
-      >
-        ◯ {showSeedShape ? c.hideSeed : c.showSeed}
-      </button>
-
-      {hasWindFarms && (
-        <button
-          className={`pmar-toggle-btn${showWindFarms ? ' active' : ''}`}
-          onClick={onToggleWindFarms}
-          title={showWindFarms ? c.hideWindFarms : c.showWindFarms}
-        >
-          ⚡ {showWindFarms ? c.hideWindFarms : c.showWindFarms}
-        </button>
-      )}
-
-      {hasOffshoreInstallations && (
-        <button
-          className={`pmar-toggle-btn${showOffshoreInstallations ? ' active' : ''}`}
-          onClick={onToggleOffshoreInstallations}
-          title={showOffshoreInstallations ? c.hideOffshore : c.showOffshore}
-        >
-          🛢️ {showOffshoreInstallations ? c.hideOffshore : c.showOffshore}
-        </button>
-      )}
-
-      <span className="pmar-controls-sep" />
-      <button className="pmar-toggle-btn" onClick={onDownloadPmar} title={c.downloadRaster}>
-        ⬇ {c.downloadRaster}
-      </button>
-    </div>
+        <Divider orientation="vertical" color="var(--modal-divider)" />
+        <Tooltip label={c.downloadRaster} withArrow>
+          <ActionIcon size="sm" variant="subtle" color="gray" onClick={onDownloadPmar}>
+            <IconDownload size={14} />
+          </ActionIcon>
+        </Tooltip>
+      </Group>
+    </Paper>
   )
 }

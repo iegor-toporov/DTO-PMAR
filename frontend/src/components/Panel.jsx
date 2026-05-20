@@ -1,9 +1,35 @@
 import { useState } from 'react'
+import {
+  Paper, Tabs, Button, Group, Stack, Text, TextInput,
+  SimpleGrid, ScrollArea,
+} from '@mantine/core'
 import { MODELS, defaultStartTime } from '../constants'
 import { useLang } from '../LanguageContext'
 import ModelCard from './ModelCard'
 import PmarPanel from './PmarPanel'
-import './Panel.css'
+
+const SCROLLBAR_STYLES = {
+  scrollbar: {
+    background: 'transparent',
+    '&:hover': { background: 'transparent' },
+    '&[data-orientation="vertical"]': { width: 5 },
+  },
+  thumb: {
+    background: 'rgba(10,132,255,0.35)',
+    borderRadius: 99,
+    '&:hover': { background: 'rgba(10,132,255,0.60)' },
+  },
+}
+
+const INPUT_LABEL = {
+  label: {
+    color: 'var(--mantine-color-dimmed)',
+    fontSize: 11,
+    fontWeight: 600,
+    textTransform: 'uppercase',
+    letterSpacing: '0.05em',
+  },
+}
 
 function formatSeedShape(s) {
   if (!s) return null
@@ -24,7 +50,7 @@ export default function Panel({
   windfarmsLoading, windfarmsEmpty,
   offshoreLoading, offshoreEmpty,
 }) {
-  const { lang, t, toggle } = useLang()
+  const { t } = useLang()
   const [selectedModel, setSelectedModel] = useState('OceanDrift')
   const [startTime, setStartTime]         = useState(defaultStartTime())
   const [number,    setNumber]            = useState('100')
@@ -44,104 +70,176 @@ export default function Panel({
   const p        = t.panel
 
   return (
-    <div className="panel">
-      {/* ── Tab bar ─────────────────────────────────────────────────── */}
-      <div className="tool-tabs">
-        <button
-          className={`tool-tab${activeTool === 'opendrift' ? ' active' : ''}`}
-          onClick={() => onToolChange('opendrift')}
-          type="button"
-        >
-          🌊 {t.tools.opendrift}
-        </button>
-        <button
-          className={`tool-tab${activeTool === 'pmar' ? ' active' : ''}`}
-          onClick={() => onToolChange('pmar')}
-          type="button"
-        >
-          📊 {t.tools.pmar}
-        </button>
-      </div>
+    <Paper
+      shadow="xl"
+      radius="lg"
+      p={0}
+      style={{
+        position: 'absolute',
+        top: 16,
+        left: 16,
+        zIndex: 1000,
+        width: 310,
+        maxHeight: 'calc(100vh - 32px)',
+        overflow: 'hidden',
+        background: 'var(--panel-bg)',
+        backdropFilter: 'blur(20px) saturate(180%)',
+        WebkitBackdropFilter: 'blur(20px) saturate(180%)',
+        border: '1px solid var(--panel-border)',
+      }}
+    >
+      <Tabs value={activeTool} onChange={onToolChange}>
+        <Tabs.List grow style={{ borderBottom: '1px solid var(--modal-divider)', flexShrink: 0 }}>
+          <Tabs.Tab value="opendrift">{t.tools.opendrift}</Tabs.Tab>
+          <Tabs.Tab value="pmar">{t.tools.pmar}</Tabs.Tab>
+        </Tabs.List>
 
-      {/* ── OpenDrift panel ─────────────────────────────────────────── */}
-      {activeTool === 'opendrift' && (
-        <>
-          <div className="section-label">{p.sectionModel}</div>
-          <div className="model-grid">
-            {MODELS.map(m => (
-              <ModelCard
-                key={m.key}
-                model={{ ...m, name: t.models[m.key].name, desc: t.models[m.key].desc }}
-                active={selectedModel === m.key}
-                onClick={() => setSelectedModel(m.key)}
-              />
-            ))}
-          </div>
+        {/* ── OpenDrift tab ─────────────────────────────────────────── */}
+        <Tabs.Panel value="opendrift">
+          <ScrollArea
+            h="calc(100vh - 80px)"
+            scrollbarSize={5}
+            type="hover"
+            styles={SCROLLBAR_STYLES}
+          >
+            <Stack gap="sm" p="md">
+              <Text size="xs" fw={600} c="dimmed" tt="uppercase" style={{ letterSpacing: '0.05em' }}>
+                {p.sectionModel}
+              </Text>
+              <SimpleGrid cols={2} spacing="xs">
+                {MODELS.map(m => (
+                  <ModelCard
+                    key={m.key}
+                    model={{ ...m, name: t.models[m.key].name, desc: t.models[m.key].desc }}
+                    active={selectedModel === m.key}
+                    onClick={() => setSelectedModel(m.key)}
+                  />
+                ))}
+              </SimpleGrid>
 
-          <div className="section-label" style={{ marginTop: 14 }}>{p.sectionSeed}</div>
-          <div className="draw-buttons">
-            <button
-              className={`draw-btn${drawMode === 'circle' ? ' active' : ''}`}
-              type="button"
-              onClick={() => onStartDraw('circle')}
-            >{p.btnCircle}</button>
-            <button
-              className={`draw-btn${drawMode === 'rectangle' ? ' active' : ''}`}
-              type="button"
-              onClick={() => onStartDraw('rectangle')}
-            >{p.btnRect}</button>
-          </div>
-          {drawMode === 'circle'    && <div className="draw-hint">{p.hintCircle}</div>}
-          {drawMode === 'rectangle' && <div className="draw-hint">{p.hintRect}</div>}
-          {!drawMode && seedInfo    && <div className="seed-info">{seedInfo}</div>}
-          {!drawMode && !seedShape  && <div className="draw-hint">{p.hintNoShape}</div>}
+              <Text size="xs" fw={600} c="dimmed" tt="uppercase" style={{ letterSpacing: '0.05em' }}>
+                {p.sectionSeed}
+              </Text>
+              <Group grow gap="xs">
+                <Button
+                  size="xs"
+                  variant={drawMode === 'circle' ? 'filled' : 'light'}
+                  color="blue"
+                  onClick={() => onStartDraw('circle')}
+                >
+                  {p.btnCircle}
+                </Button>
+                <Button
+                  size="xs"
+                  variant={drawMode === 'rectangle' ? 'filled' : 'light'}
+                  color="blue"
+                  onClick={() => onStartDraw('rectangle')}
+                >
+                  {p.btnRect}
+                </Button>
+              </Group>
 
-          <form onSubmit={handleSubmit}>
-            <div className="form-row">
-              <label>{p.labelStart}</label>
-              <input type="datetime-local" value={startTime}
-                onChange={e => setStartTime(e.target.value)} />
-            </div>
-            <div className="form-row">
-              <label>{p.labelParticles}</label>
-              <input type="number" value={number} min="1" max="10000"
-                onChange={e => setNumber(e.target.value)} />
-            </div>
-            <div className="form-row">
-              <label>{p.labelDuration}</label>
-              <input type="number" value={duration} min="1" max="720"
-                onChange={e => setDuration(e.target.value)} />
-            </div>
-            <button className="run-btn" type="submit" disabled={loading || !seedShape}>
-              {loading ? p.btnRunning : p.btnRun}
-            </button>
-          </form>
+              {drawMode === 'circle' && (
+                <Text size="xs" c="dimmed" ta="center">{p.hintCircle}</Text>
+              )}
+              {drawMode === 'rectangle' && (
+                <Text size="xs" c="dimmed" ta="center">{p.hintRect}</Text>
+              )}
+              {!drawMode && seedInfo && (
+                <Text
+                  size="xs" ta="center" c="blue.4" p="xs"
+                  style={{ background: 'rgba(10,132,255,0.08)', borderRadius: 6, border: '1px solid rgba(10,132,255,0.20)' }}
+                >
+                  {seedInfo}
+                </Text>
+              )}
+              {!drawMode && !seedShape && (
+                <Text size="xs" c="dimmed" ta="center">{p.hintNoShape}</Text>
+              )}
 
-          {status && (
-            <div className={`status ${statusType}`}>{status}</div>
-          )}
-        </>
-      )}
+              <form onSubmit={handleSubmit}>
+                <Stack gap="xs">
+                  <TextInput
+                    type="datetime-local"
+                    label={p.labelStart}
+                    size="xs"
+                    value={startTime}
+                    onChange={e => setStartTime(e.target.value)}
+                    styles={INPUT_LABEL}
+                  />
+                  <TextInput
+                    type="number"
+                    label={p.labelParticles}
+                    size="xs"
+                    value={number}
+                    min="1"
+                    max="10000"
+                    onChange={e => setNumber(e.target.value)}
+                    styles={INPUT_LABEL}
+                  />
+                  <TextInput
+                    type="number"
+                    label={p.labelDuration}
+                    size="xs"
+                    value={duration}
+                    min="1"
+                    max="720"
+                    onChange={e => setDuration(e.target.value)}
+                    styles={INPUT_LABEL}
+                  />
+                  <Button
+                    fullWidth
+                    size="sm"
+                    type="submit"
+                    color="blue"
+                    disabled={loading || !seedShape}
+                  >
+                    {loading ? p.btnRunning : p.btnRun}
+                  </Button>
+                </Stack>
+              </form>
 
-      {/* ── PMAR panel ───────────────────────────────────────────────── */}
-      {activeTool === 'pmar' && (
-        <PmarPanel
-          onRun={onRunPmar}
-          loading={pmarLoading}
-          status={pmarStatus}
-          statusType={pmarStatusType}
-          drawMode={drawMode}
-          onStartDraw={onStartDraw}
-          onClearSeedShape={onClearSeedShape}
-          seedShape={seedShape}
-          useSource={useSource}
-          onUseSourceChange={onUseSourceChange}
-          windfarmsLoading={windfarmsLoading}
-          windfarmsEmpty={windfarmsEmpty}
-          offshoreLoading={offshoreLoading}
-          offshoreEmpty={offshoreEmpty}
-        />
-      )}
-    </div>
+              {status && (
+                <Text
+                  size="xs"
+                  ta="center"
+                  c={statusType === 'error' ? 'red.4' : statusType === 'ok' ? 'green.4' : 'dimmed'}
+                  style={{ lineHeight: 1.4 }}
+                >
+                  {status}
+                </Text>
+              )}
+            </Stack>
+          </ScrollArea>
+        </Tabs.Panel>
+
+        {/* ── PMAR tab ──────────────────────────────────────────────── */}
+        <Tabs.Panel value="pmar">
+          <ScrollArea
+            h="calc(100vh - 80px)"
+            scrollbarSize={5}
+            type="hover"
+            styles={SCROLLBAR_STYLES}
+          >
+            <PmarPanel
+              onRun={onRunPmar}
+              loading={pmarLoading}
+              status={pmarStatus}
+              statusType={pmarStatusType}
+              drawMode={drawMode}
+              onStartDraw={onStartDraw}
+              onClearSeedShape={onClearSeedShape}
+              seedShape={seedShape}
+              useSource={useSource}
+              onUseSourceChange={onUseSourceChange}
+              windfarmsLoading={windfarmsLoading}
+              windfarmsEmpty={windfarmsEmpty}
+              offshoreLoading={offshoreLoading}
+              offshoreEmpty={offshoreEmpty}
+            />
+          </ScrollArea>
+        </Tabs.Panel>
+      </Tabs>
+    </Paper>
   )
 }
