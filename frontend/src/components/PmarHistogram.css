@@ -1,0 +1,97 @@
+.pmar-histogram-modal {
+  position: absolute;
+  bottom: 68px;
+  right: 16px;
+  z-index: 1000;
+  background: #1e293b;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+  padding: 12px 14px 10px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+  width: 392px;
+  min-width: 260px;
+  min-height: 160px;
+  color: #e2e8f0;
+  font-size: 12px;
+  font-family: inherit;
+  resize: both;
+  overflow: hidden;
+  box-sizing: border-box;
+}
+
+[data-theme="light"] .pmar-histogram-modal {
+  background: #f8fafc;
+  border-color: #e2e8f0;
+  color: #1e293b;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.12);
+}
+
+.pmar-histogram-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+  cursor: grab;
+  user-select: none;
+}
+
+.pmar-histogram-title {
+  font-size: 11px;
+  font-weight: 600;
+  opacity: 0.7;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.pmar-histogram-close {
+  background: none;
+  border: none;
+  color: inherit;
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0.5;
+  padding: 0 2px;
+  transition: opacity 0.15s;
+}
+.pmar-histogram-close:hover { opacity: 1; }
+
+.pmar-histogram-stats {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 3px 5px;
+  font-size: 11px;
+  opacity: 0.65;
+  margin-bottom: 8px;
+}
+
+.pmar-histogram-sep {
+  opacity: 0.4;
+}
+
+.pmar-histogram-nodata {
+  font-size: 12px;
+  opacity: 0.55;
+  text-align: center;
+  padding: 18px 0 10px;
+  margin: 0;
+}
+
+.pmar-histogram-download {
+  display: block;
+  width: 100%;
+  margin-top: 8px;
+  padding: 5px 0;
+  background: rgba(249, 115, 22, 0.12);
+  border: 1px solid rgba(249, 115, 22, 0.3);
+  border-radius: 6px;
+  color: #f97316;
+  font-size: 11px;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.pmar-histogram-download:hover {
+  background: rgba(249, 115, 22, 0.22);
+}

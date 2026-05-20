@@ -7,6 +7,13 @@ import Panel from './components/Panel'
 import SeedDrawer from './components/SeedDrawer'
 import AnimationControls from './components/AnimationControls'
 import PmarControls from './components/PmarControls'
+import ToolsPanel from './components/ToolsPanel'
+import { HistogramDrawLayer, PmarHistogramModal, MapRefSetter, ConnectorLine,
+         RectSelectionLayer, LineSelectionLayer, computeHistogramFromSnap } from './components/PmarHistogram'
+import { computeStats, PmarStatsModal } from './components/PmarStats'
+import { PmarThresholdModal } from './components/PmarThreshold'
+import { PmarComparisonModal } from './components/PmarComparison'
+import { sampleProfile, PmarProfileModal } from './components/PmarProfile'
 import 'leaflet/dist/leaflet.css'
 import './App.css'
 
@@ -470,6 +477,69 @@ function seedShapeBounds(shape) {
   return { lon_min, lat_min, lon_max, lat_max }
 }
 
+// ── Histogram instance (one per drawn selection) ─────────────────────────────
+function HistogramEntry({ histogram, mapRef, mapTheme, onClose, stackIndex }) {
+  const modalRef = useRef(null)
+  return (
+    <>
+      <ConnectorLine result={histogram.result} mapRef={mapRef} modalRef={modalRef} />
+      <PmarHistogramModal
+        ref={modalRef}
+        result={histogram.result}
+        mapTheme={mapTheme}
+        onClose={onClose}
+        stackIndex={stackIndex}
+      />
+    </>
+  )
+}
+
+function StatsEntry({ entry, mapRef, mapTheme, onClose, stackIndex }) {
+  const modalRef = useRef(null)
+  return (
+    <>
+      <ConnectorLine result={entry.result} mapRef={mapRef} modalRef={modalRef} />
+      <PmarStatsModal ref={modalRef} result={entry.result}
+                      mapTheme={mapTheme} onClose={onClose} stackIndex={stackIndex} />
+    </>
+  )
+}
+
+function ThresholdEntry({ entry, mapRef, mapTheme, onClose, stackIndex }) {
+  const modalRef = useRef(null)
+  return (
+    <>
+      <ConnectorLine result={entry.result} mapRef={mapRef} modalRef={modalRef} />
+      <PmarThresholdModal ref={modalRef} result={entry.result}
+                          mapTheme={mapTheme} onClose={onClose} stackIndex={stackIndex} />
+    </>
+  )
+}
+
+function ProfileEntry({ entry, mapRef, mapTheme, onClose, stackIndex }) {
+  const modalRef = useRef(null)
+  return (
+    <>
+      <ConnectorLine result={entry.result} mapRef={mapRef} modalRef={modalRef} />
+      <PmarProfileModal ref={modalRef} result={entry.result}
+                        mapTheme={mapTheme} onClose={onClose} stackIndex={stackIndex} />
+    </>
+  )
+}
+
+function ComparisonEntry({ entry, mapRef, mapTheme, onClose, stackIndex }) {
+  const modalRef = useRef(null)
+  return (
+    <>
+      <ConnectorLine result={entry.resultA} mapRef={mapRef} modalRef={modalRef} />
+      <ConnectorLine result={entry.resultB} mapRef={mapRef} modalRef={modalRef} />
+      <PmarComparisonModal ref={modalRef}
+                           resultA={entry.resultA} resultB={entry.resultB}
+                           mapTheme={mapTheme} onClose={onClose} stackIndex={stackIndex} />
+    </>
+  )
+}
+
 // ── App ───────────────────────────────────────────────────────────────────────
 export default function App() {
   const { t, lang, toggle } = useLang()
@@ -498,9 +568,24 @@ export default function App() {
   const [pmarStatus,      setPmarStatus]      = useState('')
   const [pmarStatusType,  setPmarStatusType]  = useState('')
   const [pmarErrorMsg,    setPmarErrorMsg]    = useState(null)
-  const [showPmarRaster,  setShowPmarRaster]  = useState(true)
-  const [showWindFarms,   setShowWindFarms]   = useState(true)
-  const [activeIndicator, setActiveIndicator] = useState('density')
+  const [showPmarRaster,   setShowPmarRaster]   = useState(true)
+  const [showWindFarms,    setShowWindFarms]    = useState(true)
+  const [activeIndicator,  setActiveIndicator]  = useState('density')
+  const [activeMapTool,     setActiveMapTool]     = useState(null)
+  const [histograms,        setHistograms]        = useState([])
+  const [statsEntries,      setStatsEntries]      = useState([])
+  const [profileEntries,    setProfileEntries]    = useState([])
+  const [thresholdEntries,  setThresholdEntries]  = useState([])
+  const [comparisonPending, setComparisonPending] = useState(null)
+  const [comparisonEntries, setComparisonEntries] = useState([])
+  const mapRef = useRef(null)
+
+  const toggleTool = (tool) =>
+    setActiveMapTool(prev => {
+      if (prev === tool) return null
+      if (prev === 'comparison') { setComparisonPending(p => { p?.layer?.remove(); return null }) }
+      return tool
+    })
 
   // Use-layer state (lifted from PmarPanel)
   const [useSource,        setUseSource]        = useState('none')
@@ -741,6 +826,15 @@ export default function App() {
       const label = lang === 'it' ? data.label_it : data.label_en
       setPmarData(data)
       setActiveIndicator('density')
+      setActiveMapTool(null)
+      setHistograms(prev        => { prev.forEach(h => h.layer?.remove()); return [] })
+      setStatsEntries(prev      => { prev.forEach(h => h.layer?.remove()); return [] })
+      setProfileEntries(prev    => { prev.forEach(h => h.layer?.remove()); return [] })
+      setThresholdEntries(prev  => { prev.forEach(h => h.layer?.remove()); return [] })
+      setComparisonPending(p    => { p?.layer?.remove(); return null })
+      setComparisonEntries(prev => {
+        prev.forEach(h => { h.layerA?.remove(); h.layerB?.remove() }); return []
+      })
       setPmarStatus(`✓ PMAR — ${label}`)
       setPmarStatusType('ok')
 
@@ -780,6 +874,79 @@ export default function App() {
   }
 
   // ── PMAR raster download (GeoTIFF EPSG:4326) ──────────────────────────────
+  // ── Tool result handlers ── (stubs expanded as each tool is implemented)
+
+  function handleStatsResult(snap, layer, rd) {
+    if (!rd) { layer?.remove(); return }
+    const stats = computeStats(rd.raster_values, snap.colMin, snap.colMax, snap.rowMin, snap.rowMax)
+    setStatsEntries(prev => [...prev, { id: Date.now(), layer, result: { ...snap, stats } }])
+  }
+
+  function handleProfileResult(lineData, layer, rd) {
+    if (!rd) { layer?.remove(); return }
+    const { latA, lonA, latB, lonB } = lineData
+    const profile = sampleProfile(latA, lonA, latB, lonB, rd)
+    setProfileEntries(prev => [...prev, {
+      id: Date.now(), layer,
+      result: {
+        ...profile,
+        snapLatMin: Math.min(latA, latB),
+        snapLatMax: Math.max(latA, latB),
+        snapLonMin: Math.min(lonA, lonB),
+        snapLonMax: Math.max(lonA, lonB),
+      },
+    }])
+  }
+
+  function handleThresholdResult(snap, layer, rd) {
+    if (!rd) { layer?.remove(); return }
+    const values = []
+    for (let r = snap.rowMin; r <= snap.rowMax; r++)
+      for (let c = snap.colMin; c <= snap.colMax; c++) {
+        const v = rd.raster_values[r]?.[c]
+        if (v > 0 && isFinite(v)) values.push(v)
+      }
+    setThresholdEntries(prev => [...prev, {
+      id: Date.now(), layer,
+      result: { ...snap, values, vmin: rd.vmin, vmax: rd.vmax, rasterRes: rd.raster_res },
+    }])
+  }
+
+  function handleCsvResult(snap, layer, rd) {
+    if (!rd) { layer?.remove(); return }
+    const rows = ['lat,lon,value']
+    for (let r = snap.rowMin; r <= snap.rowMax; r++)
+      for (let c = snap.colMin; c <= snap.colMax; c++) {
+        const v = rd.raster_values[r]?.[c]
+        if (!v || v <= 0 || !isFinite(v)) continue
+        const lat = (rd.raster_lat_min + r * rd.raster_res).toFixed(5)
+        const lon = (rd.raster_lon_min + c * rd.raster_res).toFixed(5)
+        rows.push(`${lat},${lon},${v}`)
+      }
+    const blob = new Blob([rows.join('\n')], { type: 'text/csv' })
+    Object.assign(document.createElement('a'), {
+      href: URL.createObjectURL(blob),
+      download: `pmar_cells_${Date.now()}.csv`,
+    }).click()
+    setTimeout(() => layer?.remove(), 1500)
+  }
+
+  function handleComparisonResult(snap, layer, rd) {
+    if (!rd) { layer?.remove(); return }
+    const hist = computeHistogramFromSnap(snap, rd)
+    if (!hist) { layer?.remove(); return }
+    const result = { ...hist, ...snap }
+    setComparisonPending(pending => {
+      if (!pending) return { result, layer }
+      setComparisonEntries(prev => [...prev, {
+        id: Date.now(),
+        resultA: pending.result, layerA: pending.layer,
+        resultB: result,         layerB: layer,
+      }])
+      return null
+    })
+  }
+
   function handleDownloadPmar() {
     if (!pmarData?.geotiff_b64) return
     const bytes = atob(pmarData.geotiff_b64)
@@ -821,6 +988,38 @@ export default function App() {
           showSeedShape={showSeedShape}
           onShapeDone={handleShapeDone}
         />
+        {pmarData && (
+          <HistogramDrawLayer
+            active={activeMapTool === 'histogram'}
+            rasterData={getActivePmarData(pmarData, activeIndicator)}
+            onResult={(result, layer) =>
+              setHistograms(prev => [...prev, { id: Date.now(), result, layer }])
+            }
+          />
+        )}
+        {pmarData && ['stats', 'threshold', 'csv', 'comparison'].includes(activeMapTool) && (
+          <RectSelectionLayer
+            active={true}
+            rasterData={getActivePmarData(pmarData, activeIndicator)}
+            onResult={(snap, layer) => {
+              const rd = getActivePmarData(pmarData, activeIndicator)
+              if (activeMapTool === 'stats')       handleStatsResult(snap, layer, rd)
+              else if (activeMapTool === 'threshold') handleThresholdResult(snap, layer, rd)
+              else if (activeMapTool === 'csv')    handleCsvResult(snap, layer, rd)
+              else if (activeMapTool === 'comparison') handleComparisonResult(snap, layer, rd)
+            }}
+          />
+        )}
+        {pmarData && activeMapTool === 'profile' && (
+          <LineSelectionLayer
+            active={true}
+            onResult={(lineData, layer) => {
+              const rd = getActivePmarData(pmarData, activeIndicator)
+              handleProfileResult(lineData, layer, rd)
+            }}
+          />
+        )}
+        <MapRefSetter mapRef={mapRef} />
       </MapContainer>
 
       <button
@@ -888,6 +1087,89 @@ export default function App() {
           hasIndicators={!!(pmarData?.sum_raster_values)}
         />
       )}
+
+      <ToolsPanel
+        activeMapTool={activeMapTool}
+        onSetTool={toggleTool}
+        hasRaster={!!pmarData}
+        comparisonHasAreaA={!!comparisonPending}
+      />
+
+      {histograms.map((h, i) => (
+        <HistogramEntry
+          key={h.id}
+          histogram={h}
+          mapRef={mapRef}
+          mapTheme={mapTheme}
+          stackIndex={i}
+          onClose={() => setHistograms(prev => {
+            const item = prev.find(x => x.id === h.id)
+            item?.layer?.remove()
+            return prev.filter(x => x.id !== h.id)
+          })}
+        />
+      ))}
+
+      {statsEntries.map((e, i) => (
+        <StatsEntry
+          key={e.id}
+          entry={e}
+          mapRef={mapRef}
+          mapTheme={mapTheme}
+          stackIndex={i}
+          onClose={() => setStatsEntries(prev => {
+            const item = prev.find(x => x.id === e.id)
+            item?.layer?.remove()
+            return prev.filter(x => x.id !== e.id)
+          })}
+        />
+      ))}
+
+      {thresholdEntries.map((e, i) => (
+        <ThresholdEntry
+          key={e.id}
+          entry={e}
+          mapRef={mapRef}
+          mapTheme={mapTheme}
+          stackIndex={i}
+          onClose={() => setThresholdEntries(prev => {
+            const item = prev.find(x => x.id === e.id)
+            item?.layer?.remove()
+            return prev.filter(x => x.id !== e.id)
+          })}
+        />
+      ))}
+
+      {profileEntries.map((e, i) => (
+        <ProfileEntry
+          key={e.id}
+          entry={e}
+          mapRef={mapRef}
+          mapTheme={mapTheme}
+          stackIndex={i}
+          onClose={() => setProfileEntries(prev => {
+            const item = prev.find(x => x.id === e.id)
+            item?.layer?.remove()
+            return prev.filter(x => x.id !== e.id)
+          })}
+        />
+      ))}
+
+      {comparisonEntries.map((e, i) => (
+        <ComparisonEntry
+          key={e.id}
+          entry={e}
+          mapRef={mapRef}
+          mapTheme={mapTheme}
+          stackIndex={i}
+          onClose={() => setComparisonEntries(prev => {
+            const item = prev.find(x => x.id === e.id)
+            item?.layerA?.remove()
+            item?.layerB?.remove()
+            return prev.filter(x => x.id !== e.id)
+          })}
+        />
+      ))}
 
       {pmarErrorMsg && (
         <div className="pmar-error-backdrop" onClick={() => setPmarErrorMsg(null)}>

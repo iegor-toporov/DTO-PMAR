@@ -452,7 +452,9 @@ Wind and waves downloads are non-blocking: if the dataset is unavailable the sim
 
 ## Examples
 
-![PMAR analysis — particle density heatmap using larvae model.](images/example_analysis.png)
+![PMAR analysis — particle density heatmap using larvae model. Res 0.05º.](images/example_analysis.png)
+
+![PMAR analysis - particle density heatmap using larvae model. Res 0.01º.](images/example_analysis_2.png)
 
 ---
 
