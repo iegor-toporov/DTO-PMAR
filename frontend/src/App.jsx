@@ -527,15 +527,21 @@ function ProfileEntry({ entry, mapRef, mapTheme, onClose, stackIndex }) {
   )
 }
 
-function ComparisonEntry({ entry, mapRef, mapTheme, onClose, stackIndex }) {
+function ComparisonView({ areas, mapRef, mapTheme, onRemoveArea, onClose }) {
   const modalRef = useRef(null)
+  if (!areas.length) return null
   return (
     <>
-      <ConnectorLine result={entry.resultA} mapRef={mapRef} modalRef={modalRef} />
-      <ConnectorLine result={entry.resultB} mapRef={mapRef} modalRef={modalRef} />
-      <PmarComparisonModal ref={modalRef}
-                           resultA={entry.resultA} resultB={entry.resultB}
-                           mapTheme={mapTheme} onClose={onClose} stackIndex={stackIndex} />
+      {areas.map(a => (
+        <ConnectorLine key={a.id} result={a.result} mapRef={mapRef} modalRef={modalRef} />
+      ))}
+      <PmarComparisonModal
+        ref={modalRef}
+        results={areas.map(a => a.result)}
+        mapTheme={mapTheme}
+        onRemoveArea={onRemoveArea}
+        onClose={onClose}
+      />
     </>
   )
 }
@@ -576,16 +582,11 @@ export default function App() {
   const [statsEntries,      setStatsEntries]      = useState([])
   const [profileEntries,    setProfileEntries]    = useState([])
   const [thresholdEntries,  setThresholdEntries]  = useState([])
-  const [comparisonPending, setComparisonPending] = useState(null)
-  const [comparisonEntries, setComparisonEntries] = useState([])
+  const [comparisonAreas,   setComparisonAreas]   = useState([])
   const mapRef = useRef(null)
 
   const toggleTool = (tool) =>
-    setActiveMapTool(prev => {
-      if (prev === tool) return null
-      if (prev === 'comparison') { setComparisonPending(p => { p?.layer?.remove(); return null }) }
-      return tool
-    })
+    setActiveMapTool(prev => prev === tool ? null : tool)
 
   // Use-layer state (lifted from PmarPanel)
   const [useSource,        setUseSource]        = useState('none')
@@ -831,10 +832,7 @@ export default function App() {
       setStatsEntries(prev      => { prev.forEach(h => h.layer?.remove()); return [] })
       setProfileEntries(prev    => { prev.forEach(h => h.layer?.remove()); return [] })
       setThresholdEntries(prev  => { prev.forEach(h => h.layer?.remove()); return [] })
-      setComparisonPending(p    => { p?.layer?.remove(); return null })
-      setComparisonEntries(prev => {
-        prev.forEach(h => { h.layerA?.remove(); h.layerB?.remove() }); return []
-      })
+      setComparisonAreas(prev => { prev.forEach(a => a.layer?.remove()); return [] })
       setPmarStatus(`✓ PMAR — ${label}`)
       setPmarStatusType('ok')
 
@@ -935,16 +933,7 @@ export default function App() {
     if (!rd) { layer?.remove(); return }
     const hist = computeHistogramFromSnap(snap, rd)
     if (!hist) { layer?.remove(); return }
-    const result = { ...hist, ...snap }
-    setComparisonPending(pending => {
-      if (!pending) return { result, layer }
-      setComparisonEntries(prev => [...prev, {
-        id: Date.now(),
-        resultA: pending.result, layerA: pending.layer,
-        resultB: result,         layerB: layer,
-      }])
-      return null
-    })
+    setComparisonAreas(prev => [...prev, { id: Date.now(), result: { ...hist, ...snap }, layer }])
   }
 
   function handleDownloadPmar() {
@@ -1092,7 +1081,7 @@ export default function App() {
         activeMapTool={activeMapTool}
         onSetTool={toggleTool}
         hasRaster={!!pmarData}
-        comparisonHasAreaA={!!comparisonPending}
+        comparisonAreaCount={comparisonAreas.length}
       />
 
       {histograms.map((h, i) => (
@@ -1155,21 +1144,19 @@ export default function App() {
         />
       ))}
 
-      {comparisonEntries.map((e, i) => (
-        <ComparisonEntry
-          key={e.id}
-          entry={e}
-          mapRef={mapRef}
-          mapTheme={mapTheme}
-          stackIndex={i}
-          onClose={() => setComparisonEntries(prev => {
-            const item = prev.find(x => x.id === e.id)
-            item?.layerA?.remove()
-            item?.layerB?.remove()
-            return prev.filter(x => x.id !== e.id)
-          })}
-        />
-      ))}
+      <ComparisonView
+        areas={comparisonAreas}
+        mapRef={mapRef}
+        mapTheme={mapTheme}
+        onRemoveArea={(i) => setComparisonAreas(prev => {
+          prev[i]?.layer?.remove()
+          return prev.filter((_, j) => j !== i)
+        })}
+        onClose={() => setComparisonAreas(prev => {
+          prev.forEach(a => a.layer?.remove())
+          return []
+        })}
+      />
 
       {pmarErrorMsg && (
         <div className="pmar-error-backdrop" onClick={() => setPmarErrorMsg(null)}>

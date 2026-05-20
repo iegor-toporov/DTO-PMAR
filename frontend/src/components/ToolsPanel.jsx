@@ -14,7 +14,7 @@ export default function ToolsPanel({
   activeMapTool,
   onSetTool,
   hasRaster,
-  comparisonHasAreaA,
+  comparisonAreaCount = 0,
 }) {
   const { t } = useLang()
   const c = t.toolsPanel
@@ -26,8 +26,8 @@ export default function ToolsPanel({
       {TOOLS.map(({ key, icon, labelKey }) => {
         const isActive = activeMapTool === key
         const isCsv    = key === 'csv'
-        const badge    = key === 'comparison' && comparisonHasAreaA
-          ? <span className="tools-panel-badge">{c.comparisonDrawB}</span>
+        const badge    = key === 'comparison' && comparisonAreaCount > 0
+          ? <span className="tools-panel-badge">{comparisonAreaCount} {c.comparisonAreas}</span>
           : null
         return (
           <button

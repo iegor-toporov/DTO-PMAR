@@ -65,10 +65,15 @@
 
 .pmar-comparison-legend {
   display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin-bottom: 6px;
+}
+
+.pmar-comparison-legend-row {
+  display: flex;
   align-items: center;
   gap: 6px;
-  flex-wrap: wrap;
-  margin-bottom: 6px;
 }
 
 .pmar-comparison-swatch {
@@ -83,8 +88,22 @@
 .pmar-comparison-area-label {
   font-size: 10px;
   opacity: 0.75;
-  margin-right: 6px;
+  flex: 1;
 }
+
+.pmar-comparison-remove {
+  background: none;
+  border: none;
+  color: inherit;
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0.4;
+  padding: 0 2px;
+  transition: opacity 0.15s;
+  flex-shrink: 0;
+}
+.pmar-comparison-remove:hover { opacity: 0.9; }
 
 .pmar-comparison-download {
   display: block;

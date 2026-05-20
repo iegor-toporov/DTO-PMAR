@@ -57,17 +57,6 @@ export const PmarStatsModal = forwardRef(function PmarStatsModal(
     el.style.right  = 'auto'
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
-  useLayoutEffect(() => {
-    const el = ref?.current
-    if (!el) return
-    el.addEventListener('mousemove', onMouseMove)
-    el.addEventListener('mouseup', onMouseUp)
-    return () => {
-      el.removeEventListener('mousemove', onMouseMove)
-      el.removeEventListener('mouseup', onMouseUp)
-    }
-  }, [ref]) // eslint-disable-line react-hooks/exhaustive-deps
-
   // Drag via document (same pattern as PmarHistogramModal)
   useLayoutEffect(() => {
     function onMouseMove(e) {

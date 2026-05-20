@@ -186,7 +186,14 @@ function HistogramSVG({ result, mapTheme, svgRef }) {
     xTicks.push({ x, label })
   }
 
-  const yTicks = [0, Math.round(maxBin / 2), maxBin]
+  function fmtCount(v) {
+    if (v >= 1e6) return `${(v / 1e6).toFixed(v % 1e6 === 0 ? 0 : 1)}M`
+    if (v >= 1e3) return `${(v / 1e3).toFixed(v % 1e3 === 0 ? 0 : 1)}k`
+    return String(v)
+  }
+
+  const yTicks = [0, 0.25, 0.5, 0.75, 1]
+    .map(f => Math.round(f * maxBin))
     .filter((v, i, a) => a.indexOf(v) === i && isFinite(v))
 
   return (
@@ -237,8 +244,8 @@ function HistogramSVG({ result, mapTheme, svgRef }) {
           <g key={v}>
             <line x1={mx.left - 4} x2={mx.left} y1={y} y2={y}
                   stroke={textColor} strokeWidth={1} />
-            <text x={mx.left - 7} y={y + 3} textAnchor="end"
-                  fontSize={9} fill={textColor}>{v}</text>
+            <text x={mx.left - 6} y={y + 3} textAnchor="end"
+                  fontSize={9} fill={textColor}>{fmtCount(v)}</text>
           </g>
         )
       })}
