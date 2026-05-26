@@ -1,23 +1,18 @@
-import { forwardRef, useLayoutEffect, useRef } from 'react'
-import { Paper, Group, ActionIcon, Button, Text, Box, ColorSwatch } from '@mantine/core'
+import { forwardRef, useEffect, useRef, useState } from 'react'
+import { Button, Text, Box, Group, ActionIcon, ColorSwatch } from '@mantine/core'
 import { IconX, IconDownload } from '@tabler/icons-react'
 import { useLang } from '../LanguageContext'
-
-const MODAL_BG     = 'var(--modal-bg)'
-const MODAL_BORDER = '1px solid var(--modal-border)'
+import { FloatingWindow } from './FloatingWindow'
 
 export const AREA_COLORS = ['#0a84ff', '#30d158', '#ff9f0a', '#bf5af2', '#ff453a', '#64d2ff', '#ffd60a', '#ff375f']
 
 // ── Multi-area grouped histogram SVG ─────────────────────────────────────────
-// Each bin has N side-by-side sub-bars (one per area). The viewBox width grows
-// with N so bars never get thinner than ~8 SVG units.
 
 function ComparisonSVG({ results, mapTheme, svgRef }) {
   const nBins = results[0]?.nBins ?? 20
   const N     = results.length
   const H     = 200
   const mx    = { top: 14, right: 14, bottom: 38, left: 44 }
-  // Minimum bar width = 8 SVG units; bins are N bars wide each
   const minPw = nBins * N * 8
   const W     = Math.max(420, mx.left + mx.right + minPw)
   const pw    = W - mx.left - mx.right
@@ -78,7 +73,6 @@ function ComparisonSVG({ results, mapTheme, svgRef }) {
       <line x1={mx.left} x2={mx.left} y1={mx.top} y2={mx.top + ph}
             stroke={textColor} strokeWidth={1} />
 
-      {/* Y ticks */}
       {[0, 25, 50, 75, 100].map(pct => {
         const y = mx.top + ph * (1 - pct / 100)
         return (
@@ -91,7 +85,6 @@ function ComparisonSVG({ results, mapTheme, svgRef }) {
         )
       })}
 
-      {/* Y axis label */}
       <text x={10} y={mx.top + ph / 2} textAnchor="middle"
             fontSize={9} fill={textColor}
             transform={`rotate(-90 10 ${mx.top + ph / 2})`}>% of peak</text>
@@ -133,47 +126,37 @@ export const PmarComparisonModal = forwardRef(function PmarComparisonModal(
   const { t } = useLang()
   const c      = t.toolsPanel
   const svgRef = useRef(null)
-  const dragRef = useRef({ dragging: false, startX: 0, startY: 0, dx: 0, dy: 0 })
 
-  useLayoutEffect(() => {
-    const el = ref?.current
-    if (!el) return
-    const { width: elW, height: elH } = el.getBoundingClientRect()
-    const { innerWidth: vw, innerHeight: vh } = window
-    el.style.top    = `${vh - 68 - stackIndex * 24 - elH}px`
-    el.style.left   = `${vw - 16 - stackIndex * 16 - elW}px`
-    el.style.bottom = 'auto'
-    el.style.right  = 'auto'
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  const [names, setNames] = useState(() =>
+    results.map((_, i) => String.fromCharCode(65 + i))
+  )
 
-  useLayoutEffect(() => {
-    function onMouseMove(e) {
-      if (!dragRef.current.dragging) return
-      dragRef.current.dx = e.clientX - dragRef.current.startX
-      dragRef.current.dy = e.clientY - dragRef.current.startY
-      if (ref?.current)
-        ref.current.style.transform =
-          `translate(${dragRef.current.dx}px, ${dragRef.current.dy}px)`
-    }
-    function onMouseUp() {
-      if (!dragRef.current.dragging) return
-      dragRef.current.dragging = false
-      if (ref?.current) ref.current.style.cursor = ''
-    }
-    document.addEventListener('mousemove', onMouseMove)
-    document.addEventListener('mouseup',   onMouseUp)
-    return () => {
-      document.removeEventListener('mousemove', onMouseMove)
-      document.removeEventListener('mouseup',   onMouseUp)
-    }
-  }, [ref])
+  // keep names in sync when new areas are added
+  useEffect(() => {
+    setNames(prev => {
+      if (results.length <= prev.length) return prev
+      return [
+        ...prev,
+        ...results.slice(prev.length).map((_, i) => String.fromCharCode(65 + prev.length + i)),
+      ]
+    })
+  }, [results.length])
 
-  function onHeaderMouseDown(e) {
-    e.preventDefault()
-    dragRef.current.dragging = true
-    dragRef.current.startX   = e.clientX - dragRef.current.dx
-    dragRef.current.startY   = e.clientY - dragRef.current.dy
-    if (ref?.current) ref.current.style.cursor = 'grabbing'
+  function handleRemoveArea(i) {
+    setNames(prev => prev.filter((_, j) => j !== i))
+    onRemoveArea(i)
+  }
+
+  function handleRename(i, val) {
+    setNames(prev => prev.map((n, j) => j === i ? val : n))
+  }
+
+  function fmtArea(r) {
+    const dLat   = r.snapLatMax - r.snapLatMin
+    const dLon   = r.snapLonMax - r.snapLonMin
+    const latMid = (r.snapLatMin + r.snapLatMax) / 2
+    const km2    = Math.abs(dLat * dLon * 111.32 * 111.32 * Math.cos(latMid * Math.PI / 180))
+    return km2 >= 10 ? `~${Math.round(km2)} km²` : `~${km2.toFixed(1)} km²`
   }
 
   function downloadPng() {
@@ -183,12 +166,8 @@ export const PmarComparisonModal = forwardRef(function PmarComparisonModal(
     const pw = vb.width, ph = vb.height
     const SCALE = 2
 
-    const padH    = 12
-    const padVTop = 10
-    const padVBot = 8
-    const rowH    = 18
-    const rowGap  = 4
-    const swatchS = 10
+    const padH    = 12, padVTop = 10, padVBot = 8
+    const rowH    = 18, rowGap  = 4,  swatchS = 10
     const textX   = padH + swatchS + 7
     const legendH = padVTop + results.length * rowH + (results.length - 1) * rowGap + padVBot
 
@@ -203,7 +182,6 @@ export const PmarComparisonModal = forwardRef(function PmarComparisonModal(
 
     ctx.fillStyle = bg
     ctx.fillRect(0, 0, pw * SCALE, legendH * SCALE)
-
     ctx.textBaseline = 'middle'
     ctx.font = `${11 * SCALE}px system-ui, -apple-system, sans-serif`
     results.forEach((r, i) => {
@@ -215,7 +193,7 @@ export const PmarComparisonModal = forwardRef(function PmarComparisonModal(
       ctx.globalAlpha = 1
       ctx.fillStyle = textColor
       ctx.fillText(
-        `${String.fromCharCode(65 + i)} — ${r.total.toLocaleString()} cells · ${fmtArea(r)}`,
+        `${names[i] ?? String.fromCharCode(65 + i)} — ${r.total.toLocaleString()} cells · ${fmtArea(r)}`,
         textX * SCALE,
         (rowTop + rowH / 2) * SCALE,
       )
@@ -235,64 +213,43 @@ export const PmarComparisonModal = forwardRef(function PmarComparisonModal(
     img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(clone.outerHTML)
   }
 
-  function fmtArea(r) {
-    const dLat   = r.snapLatMax - r.snapLatMin
-    const dLon   = r.snapLonMax - r.snapLonMin
-    const latMid = (r.snapLatMin + r.snapLatMax) / 2
-    const km2    = Math.abs(dLat * dLon * 111.32 * 111.32 * Math.cos(latMid * Math.PI / 180))
-    return km2 >= 10 ? `~${Math.round(km2)} km²` : `~${km2.toFixed(1)} km²`
-  }
-
   const hasChart = results.length >= 2
 
   return (
-    <Paper
-      ref={ref}
-      shadow="xl"
-      radius="md"
-      p={0}
-      style={{
-        position: 'fixed',
-        zIndex: 1000,
-        width: 440,
-        minWidth: 260,
-        minHeight: 160,
-        resize: 'both',
-        overflow: 'hidden',
-        background: MODAL_BG,
-        border: MODAL_BORDER,
-        backdropFilter: 'blur(20px) saturate(180%)',
-        WebkitBackdropFilter: 'blur(20px) saturate(180%)',
-      }}
-    >
-      <Group
-        justify="space-between"
-        align="center"
-        px="sm"
-        py={6}
-        style={{ borderBottom: '1px solid var(--modal-divider)', cursor: 'grab', userSelect: 'none' }}
-        onMouseDown={onHeaderMouseDown}
-      >
-        <Text size="xs" fw={600} tt="uppercase" c="dimmed" style={{ letterSpacing: '0.06em' }}>
-          {c.comparisonTitle}
-        </Text>
-        <ActionIcon size="xs" variant="subtle" c="dimmed" onClick={onClose}>
-          <IconX size={13} />
-        </ActionIcon>
-      </Group>
-
+    <FloatingWindow ref={ref} title={c.comparisonTitle} onClose={onClose} stackIndex={stackIndex} width={440}>
       <Box px="sm" pt="xs" pb={6}>
         {results.length === 0 ? (
           <Text size="xs" c="dimmed" ta="center" py="md">{c.comparisonAddHint}</Text>
         ) : (
           <Box mb="xs">
             {results.map((r, i) => (
-              <Group key={i} gap="xs" mb={4} wrap="nowrap">
-                <ColorSwatch color={AREA_COLORS[i % AREA_COLORS.length]} size={10} />
-                <Text size="10px" style={{ flex: 1 }}>
-                  {String.fromCharCode(65 + i)} — {r.total.toLocaleString()} cells · {fmtArea(r)}
+              <Group key={i} gap={6} mb={4} wrap="nowrap" align="center">
+                <ColorSwatch color={AREA_COLORS[i % AREA_COLORS.length]} size={10} style={{ flexShrink: 0 }} />
+                <input
+                  className="fw-cancel"
+                  value={names[i] ?? String.fromCharCode(65 + i)}
+                  onChange={e => handleRename(i, e.target.value)}
+                  style={{
+                    flex: '1 1 60px',
+                    minWidth: 60,
+                    background: 'transparent',
+                    border: 'none',
+                    borderBottom: '1px solid var(--modal-divider)',
+                    color: 'var(--text-primary)',
+                    fontSize: 10,
+                    padding: '1px 3px',
+                    outline: 'none',
+                    cursor: 'text',
+                  }}
+                />
+                <Text size="10px" c="dimmed" style={{ flexShrink: 0 }}>
+                  {r.total.toLocaleString()} · {fmtArea(r)}
                 </Text>
-                <ActionIcon size="xs" variant="subtle" c="dimmed" onClick={() => onRemoveArea(i)}>
+                <ActionIcon
+                  className="fw-cancel"
+                  size="xs" variant="subtle" c="dimmed"
+                  onClick={() => handleRemoveArea(i)}
+                >
                   <IconX size={11} />
                 </ActionIcon>
               </Group>
@@ -308,11 +265,7 @@ export const PmarComparisonModal = forwardRef(function PmarComparisonModal(
           <>
             <ComparisonSVG results={results} mapTheme={mapTheme} svgRef={svgRef} />
             <Button
-              fullWidth
-              size="xs"
-              variant="light"
-              color="blue"
-              mt="xs"
+              fullWidth size="xs" variant="light" color="blue" mt="xs"
               leftSection={<IconDownload size={12} />}
               onClick={downloadPng}
             >
@@ -321,6 +274,6 @@ export const PmarComparisonModal = forwardRef(function PmarComparisonModal(
           </>
         )}
       </Box>
-    </Paper>
+    </FloatingWindow>
   )
 })

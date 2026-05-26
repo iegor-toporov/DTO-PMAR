@@ -36,18 +36,19 @@ class ScenarioStatusProcessor(BaseProcessor):
     def execute(self, data):
         scenarios = {}
 
-        for meta_file in sorted(glob.glob(os.path.join(SCENARIOS_DIR, 'custom_*.json'))):
+        for meta_file in sorted(glob.glob(os.path.join(SCENARIOS_DIR, 'custom_*.json')), key=os.path.getmtime, reverse=True):
             try:
                 with open(meta_file) as f:
                     sc = json.load(f)
-                sid     = sc.get('scenario_id', os.path.basename(meta_file).replace('.json', ''))
-                nc_path = os.path.join(SCENARIOS_DIR, sc['nc_filename'])
-                if os.path.exists(nc_path):
-                    nc_size_mb = round(os.path.getsize(nc_path) / (1024 * 1024), 2)
-                    computed   = True
-                else:
-                    nc_size_mb = None
-                    computed   = False
+                sid          = sc.get('scenario_id', os.path.basename(meta_file).replace('.json', ''))
+                nc_filenames = sc.get('nc_filenames') or [sc['nc_filename']]
+                existing     = [fn for fn in nc_filenames
+                                if os.path.exists(os.path.join(SCENARIOS_DIR, fn))]
+                computed     = len(existing) == len(nc_filenames)
+                nc_size_mb   = round(
+                    sum(os.path.getsize(os.path.join(SCENARIOS_DIR, fn)) for fn in existing)
+                    / (1024 * 1024), 2
+                ) if existing else None
                 scenarios[sid] = {
                     'computed':        computed,
                     'nc_size_mb':      nc_size_mb,
@@ -64,6 +65,8 @@ class ScenarioStatusProcessor(BaseProcessor):
                     'cmems_margin':    sc.get('cmems_margin', 5.0),
                     'description':     sc.get('description', ''),
                     'source':          'custom',
+                    'seedings':        sc.get('seedings', 1),
+                    'tshift':          sc.get('tshift', 0),
                 }
             except Exception as e:
                 logger.warning(f'[ScenarioStatus] Impossibile caricare {meta_file}: {e}')

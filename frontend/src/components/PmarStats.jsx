@@ -1,10 +1,8 @@
-import { forwardRef, useLayoutEffect, useRef } from 'react'
-import { Paper, Group, ActionIcon, Button, Text, Box } from '@mantine/core'
-import { IconX, IconDownload } from '@tabler/icons-react'
+import { forwardRef } from 'react'
+import { Button, Text, Box } from '@mantine/core'
+import { IconDownload } from '@tabler/icons-react'
 import { useLang } from '../LanguageContext'
-
-const MODAL_BG     = 'var(--modal-bg)'
-const MODAL_BORDER = '1px solid var(--modal-border)'
+import { FloatingWindow } from './FloatingWindow'
 
 // ── Computation ───────────────────────────────────────────────────────────────
 
@@ -44,52 +42,10 @@ function fmt(v) {
 // ── Modal ─────────────────────────────────────────────────────────────────────
 
 export const PmarStatsModal = forwardRef(function PmarStatsModal(
-  { result, mapTheme, onClose, stackIndex = 0 }, ref
+  { result, onClose, stackIndex = 0 }, ref
 ) {
   const { t } = useLang()
   const c = t.toolsPanel
-  const dragRef = useRef({ dragging: false, startX: 0, startY: 0, dx: 0, dy: 0 })
-
-  useLayoutEffect(() => {
-    const el = ref?.current
-    if (!el) return
-    const { width: elW, height: elH } = el.getBoundingClientRect()
-    const { innerWidth: vw, innerHeight: vh } = window
-    el.style.top    = `${vh - 68 - stackIndex * 24 - elH}px`
-    el.style.left   = `${vw - 16 - stackIndex * 16 - elW}px`
-    el.style.bottom = 'auto'
-    el.style.right  = 'auto'
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps
-
-  useLayoutEffect(() => {
-    function onMouseMove(e) {
-      if (!dragRef.current.dragging) return
-      const dx = e.clientX - dragRef.current.startX
-      const dy = e.clientY - dragRef.current.startY
-      dragRef.current.dx = dx
-      dragRef.current.dy = dy
-      if (ref?.current) ref.current.style.transform = `translate(${dx}px, ${dy}px)`
-    }
-    function onMouseUp() {
-      if (!dragRef.current.dragging) return
-      dragRef.current.dragging = false
-      if (ref?.current) ref.current.style.cursor = ''
-    }
-    document.addEventListener('mousemove', onMouseMove)
-    document.addEventListener('mouseup',   onMouseUp)
-    return () => {
-      document.removeEventListener('mousemove', onMouseMove)
-      document.removeEventListener('mouseup',   onMouseUp)
-    }
-  }, [ref])
-
-  function onHeaderMouseDown(e) {
-    e.preventDefault()
-    dragRef.current.dragging = true
-    dragRef.current.startX   = e.clientX - dragRef.current.dx
-    dragRef.current.startY   = e.clientY - dragRef.current.dy
-    if (ref?.current) ref.current.style.cursor = 'grabbing'
-  }
 
   function downloadTsv() {
     if (!result.stats) return
@@ -130,40 +86,7 @@ export const PmarStatsModal = forwardRef(function PmarStatsModal(
   ] : []
 
   return (
-    <Paper
-      ref={ref}
-      shadow="xl"
-      radius="md"
-      p={0}
-      style={{
-        position: 'fixed',
-        zIndex: 1000,
-        minWidth: 220,
-        minHeight: 160,
-        resize: 'both',
-        overflow: 'hidden',
-        background: MODAL_BG,
-        border: MODAL_BORDER,
-        backdropFilter: 'blur(20px) saturate(180%)',
-        WebkitBackdropFilter: 'blur(20px) saturate(180%)',
-      }}
-    >
-      <Group
-        justify="space-between"
-        align="center"
-        px="sm"
-        py={6}
-        style={{ borderBottom: '1px solid var(--modal-divider)', cursor: 'grab', userSelect: 'none' }}
-        onMouseDown={onHeaderMouseDown}
-      >
-        <Text size="xs" fw={600} tt="uppercase" c="dimmed" style={{ letterSpacing: '0.06em' }}>
-          {c.statsTitle}
-        </Text>
-        <ActionIcon size="xs" variant="subtle" c="dimmed" onClick={onClose}>
-          <IconX size={13} />
-        </ActionIcon>
-      </Group>
-
+    <FloatingWindow ref={ref} title={c.statsTitle} onClose={onClose} stackIndex={stackIndex}>
       <Box px="sm" pt="xs" pb={6}>
         {!result.stats ? (
           <Text size="xs" c="dimmed" ta="center" py="md">{c.statsNoData}</Text>
@@ -180,11 +103,7 @@ export const PmarStatsModal = forwardRef(function PmarStatsModal(
               </tbody>
             </table>
             <Button
-              fullWidth
-              size="xs"
-              variant="light"
-              color="blue"
-              mt="xs"
+              fullWidth size="xs" variant="light" color="blue" mt="xs"
               leftSection={<IconDownload size={12} />}
               onClick={downloadTsv}
             >
@@ -193,6 +112,6 @@ export const PmarStatsModal = forwardRef(function PmarStatsModal(
           </>
         )}
       </Box>
-    </Paper>
+    </FloatingWindow>
   )
 })

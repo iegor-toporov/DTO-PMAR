@@ -1,9 +1,60 @@
 import { useState, useRef, useEffect } from 'react'
+import { createPortal } from 'react-dom'
 import {
   Tabs, Button, Group, Stack, Text, TextInput, Textarea,
   SimpleGrid, SegmentedControl, NativeSelect, Paper, ScrollArea,
+  Switch, Badge, Collapse, ActionIcon,
 } from '@mantine/core'
+import { IconInfoCircle, IconX, IconChevronDown, IconChevronUp } from '@tabler/icons-react'
 import { useLang } from '../LanguageContext'
+
+function InfoTooltip({ text }) {
+  const [anchor, setAnchor] = useState(null)
+
+  return (
+    <>
+      <span
+        onMouseEnter={e => setAnchor({ x: e.clientX, y: e.clientY })}
+        onMouseMove={e => setAnchor({ x: e.clientX, y: e.clientY })}
+        onMouseLeave={() => setAnchor(null)}
+        style={{ display: 'inline-flex', cursor: 'help', opacity: 0.5, marginLeft: 4, verticalAlign: 'middle', lineHeight: 1 }}
+      >
+        <IconInfoCircle size={12} />
+      </span>
+      {anchor && createPortal(
+        <div style={{
+          position: 'fixed',
+          left: anchor.x + 14,
+          top: anchor.y - 6,
+          maxWidth: 240,
+          background: 'var(--mantine-color-dark-6)',
+          color: 'var(--mantine-color-gray-3)',
+          fontSize: 12,
+          lineHeight: 1.5,
+          padding: '6px 10px',
+          borderRadius: 6,
+          boxShadow: '0 4px 20px rgba(0,0,0,0.45)',
+          border: '1px solid rgba(255,255,255,0.07)',
+          zIndex: 99999,
+          pointerEvents: 'none',
+          wordBreak: 'break-word',
+        }}>
+          {text}
+        </div>,
+        document.body
+      )}
+    </>
+  )
+}
+
+function lbl(text, tip) {
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center' }}>
+      {text}
+      {tip && <InfoTooltip text={tip} />}
+    </span>
+  )
+}
 
 const PRESSURES = [
   { key: 'generic', labelKey: 'generic' },
@@ -45,6 +96,18 @@ const LABEL_STYLES = {
     textTransform: 'uppercase',
     letterSpacing: '0.05em',
   },
+}
+
+function computeDateRange(startDate, seedings, tshift, locale) {
+  try {
+    const start = new Date(startDate)
+    const last  = new Date(start)
+    last.setDate(last.getDate() + (parseInt(seedings) - 1) * parseInt(tshift))
+    const fmt = d => d.toLocaleDateString(locale, { day: '2-digit', month: '2-digit', year: 'numeric' })
+    return `${fmt(start)} → ${fmt(last)}`
+  } catch {
+    return ''
+  }
 }
 
 function defaultStartDate() {
@@ -94,7 +157,8 @@ export default function PmarPanel({
   const { t, lang } = useLang()
   const p = t.pmar
 
-  const [runMode, setRunMode] = useState('custom')
+  const [runMode,       setRunMode]       = useState('custom')
+  const [showAdvanced,  setShowAdvanced]  = useState(false)
 
   const [seedAreaMode,      setSeedAreaMode]      = useState('draw')
   const [shapefileB64,      setShapefileB64]      = useState(null)
@@ -109,6 +173,9 @@ export default function PmarPanel({
   const [customDesc,    setCustomDesc]    = useState('')
   const [seedAreaName,  setSeedAreaName]  = useState('')
   const [cmemsMargin,   setCmemsMargin]   = useState('5')
+  const [multiSeeding,  setMultiSeeding]  = useState(false)
+  const [seedings,      setSeedings]      = useState('3')
+  const [tshift,        setTshift]        = useState('30')
   const [pressure,      setPressure]      = useState('generic')
   const [startDate,     setStartDate]     = useState(defaultStartDate())
   const [durationDays,  setDurationDays]  = useState('30')
@@ -194,6 +261,7 @@ export default function PmarPanel({
             ? { area_name: seedAreaName.trim() } : {}),
       cmems_margin: parseFloat(cmemsMargin) || 5.0,
       ...(customDesc.trim() ? { description: customDesc.trim() } : {}),
+      ...(multiSeeding ? { seedings: parseInt(seedings) || 3, tshift: parseInt(tshift) || 30 } : {}),
     }
     try {
       const r    = await fetch('/processes/precompute/execution', {
@@ -257,7 +325,8 @@ export default function PmarPanel({
 
   const ncBytesPerStep  = pressure === 'oil' ? 160 : pressure === 'larvae' ? 120 : pressure === 'plastic' ? 60 : 40
   const stepsPerDay     = 24 / parseInt(timeStepHours || 1)
-  const ncEstimateBytes = parseInt(pnum || 0) * parseInt(durationDays || 0) * stepsPerDay * ncBytesPerStep
+  const ncSeedingsCount = multiSeeding ? (parseInt(seedings) || 1) : 1
+  const ncEstimateBytes = parseInt(pnum || 0) * parseInt(durationDays || 0) * stepsPerDay * ncBytesPerStep * ncSeedingsCount
   function formatNcSize(bytes) {
     if (bytes >= 1e9) return (bytes / 1e9).toFixed(1) + ' GB'
     if (bytes >= 1e6) return (bytes / 1e6).toFixed(0) + ' MB'
@@ -305,9 +374,10 @@ export default function PmarPanel({
                     data={[
                       { value: '', label: p.scenarioNone },
                       ...customEntries.map(([sid, sc]) => {
-                        const label = lang === 'it' ? sc.label_it : sc.label_en
-                        const icon  = sc.status === 'ready' ? '✓' : sc.status === 'not_computed' ? '○' : '✗'
-                        return { value: sid, label: `${icon} ${label}` }
+                        const label   = lang === 'it' ? sc.label_it : sc.label_en
+                        const icon    = sc.status === 'ready' ? '✓' : sc.status === 'not_computed' ? '○' : '✗'
+                        const multi   = sc.seedings > 1 ? ` [${sc.seedings}×]` : ''
+                        return { value: sid, label: `${icon} ${label}${multi}` }
                       })
                     ]}
                   />
@@ -335,6 +405,12 @@ export default function PmarPanel({
                                 <Text size="10px" c="gray.3" fw={500}>{val}</Text>
                               </Group>
                             ))}
+                            {sc.seedings > 1 && (
+                              <Group justify="space-between" gap="xs" mt={2}>
+                                <Text size="10px" c="dimmed">{p.labelMultiSeeding}</Text>
+                                <Badge size="xs" variant="light" color="violet">{sc.seedings}× / {sc.tshift}d</Badge>
+                              </Group>
+                            )}
                             {sc.description && (
                               <Text size="10px" c="dimmed" mt={4} style={{ borderTop: '1px solid var(--modal-divider)', paddingTop: 4, lineHeight: 1.5 }}>
                                 {sc.description}
@@ -373,6 +449,45 @@ export default function PmarPanel({
                 minRows={2}
                 styles={LABEL_STYLES}
               />
+
+              {/* ── Multi-seeding ─────────────────────────────── */}
+              <Switch
+                size="xs"
+                label={lbl(p.multiSeedingToggle, p.tooltips.multiSeeding)}
+                checked={multiSeeding}
+                onChange={e => setMultiSeeding(e.currentTarget.checked)}
+                styles={{ label: { ...LABEL_STYLES.label, cursor: 'pointer' } }}
+              />
+              {multiSeeding && (
+                <Stack gap="xs">
+                  <Group grow gap="xs">
+                    <TextInput
+                      type="number"
+                      size="xs"
+                      label={lbl(p.seedingsLabel, p.tooltips.seedingsCount)}
+                      value={seedings}
+                      min="2"
+                      max="12"
+                      onChange={e => setSeedings(e.target.value)}
+                      styles={LABEL_STYLES}
+                    />
+                    <TextInput
+                      type="number"
+                      size="xs"
+                      label={lbl(p.tshiftLabel, p.tooltips.tshift)}
+                      value={tshift}
+                      min="1"
+                      max="365"
+                      onChange={e => setTshift(e.target.value)}
+                      styles={LABEL_STYLES}
+                    />
+                  </Group>
+                  <Text size="10px" c="dimmed" ta="center">
+                    {computeDateRange(startDate, seedings, tshift, t.controls.locale)}
+                    {' · '}{seedings} run × {tshift} gg
+                  </Text>
+                </Stack>
+              )}
 
               {/* ── Area di seeding ───────────────────────────── */}
               <Text size="xs" fw={600} c="dimmed" tt="uppercase" style={{ letterSpacing: '0.05em' }}>
@@ -417,9 +532,26 @@ export default function PmarPanel({
                   {drawMode === 'circle'    && <Text size="xs" c="dimmed" ta="center">{p.hintCircle}</Text>}
                   {drawMode === 'rectangle' && <Text size="xs" c="dimmed" ta="center">{p.hintRect}</Text>}
                   {!drawMode && seedInfo && (
-                    <Text size="xs" ta="center" c="blue.4" p="xs" style={{ background: 'rgba(10,132,255,0.08)', borderRadius: 6, border: '1px solid rgba(10,132,255,0.20)' }}>
-                      {seedInfo}
-                    </Text>
+                    <Group
+                      gap={4}
+                      align="center"
+                      px="xs"
+                      py={6}
+                      style={{ background: 'rgba(10,132,255,0.08)', borderRadius: 6, border: '1px solid rgba(10,132,255,0.20)' }}
+                    >
+                      <Text size="xs" c="blue.4" style={{ flex: 1, textAlign: 'center' }}>
+                        {seedInfo}
+                      </Text>
+                      <ActionIcon
+                        size={16}
+                        variant="subtle"
+                        color="blue"
+                        onClick={onClearSeedShape}
+                        style={{ flexShrink: 0, opacity: 0.7 }}
+                      >
+                        <IconX size={10} />
+                      </ActionIcon>
+                    </Group>
                   )}
                   {!drawMode && !seedShape && <Text size="xs" c="dimmed" ta="center">{p.hintNoShape}</Text>}
                   <TextInput
@@ -492,9 +624,12 @@ export default function PmarPanel({
               )}
 
               {/* ── Tipo di pressione ─────────────────────────── */}
-              <Text size="xs" fw={600} c="dimmed" tt="uppercase" style={{ letterSpacing: '0.05em' }}>
-                {p.sectionPressure}
-              </Text>
+              <Group gap={4} align="center">
+                <Text size="xs" fw={600} c="dimmed" tt="uppercase" style={{ letterSpacing: '0.05em' }}>
+                  {p.sectionPressure}
+                </Text>
+                <InfoTooltip text={p.tooltips.sectionPressure} />
+              </Group>
               <SimpleGrid cols={2} spacing="xs">
                 {PRESSURES.map(pr => (
                   <Button
@@ -513,7 +648,7 @@ export default function PmarPanel({
               <TextInput
                 type="date"
                 size="xs"
-                label={p.labelStart}
+                label={lbl(p.labelStart, p.tooltips.labelStart)}
                 value={startDate}
                 onChange={e => setStartDate(e.target.value)}
                 styles={LABEL_STYLES}
@@ -522,7 +657,7 @@ export default function PmarPanel({
                 <TextInput
                   type="number"
                   size="xs"
-                  label={p.labelDuration}
+                  label={lbl(p.labelDuration, p.tooltips.labelDuration)}
                   value={durationDays}
                   min="1"
                   max="730"
@@ -532,7 +667,7 @@ export default function PmarPanel({
                 <TextInput
                   type="number"
                   size="xs"
-                  label={p.labelParticles}
+                  label={lbl(p.labelParticles, p.tooltips.labelParticles)}
                   value={pnum}
                   min="10"
                   max="100000"
@@ -540,25 +675,42 @@ export default function PmarPanel({
                   styles={LABEL_STYLES}
                 />
               </Group>
-              <NativeSelect
-                size="xs"
-                label={p.labelTimeStep}
-                value={timeStepHours}
-                onChange={e => setTimeStepHours(e.target.value)}
-                data={TIME_STEPS}
-                styles={LABEL_STYLES}
-              />
-              <TextInput
-                type="number"
-                size="xs"
-                label={p.labelCmemsMargin}
-                value={cmemsMargin}
-                min="0"
-                max="20"
-                step="any"
-                onChange={e => setCmemsMargin(e.target.value)}
-                styles={LABEL_STYLES}
-              />
+              <Group
+                gap={4}
+                align="center"
+                style={{ cursor: 'pointer', userSelect: 'none' }}
+                onClick={() => setShowAdvanced(v => !v)}
+              >
+                <Text size="xs" fw={600} c="dimmed" tt="uppercase" style={{ letterSpacing: '0.05em', flex: 1 }}>
+                  {p.advancedLabel}
+                </Text>
+                {showAdvanced
+                  ? <IconChevronUp size={12} style={{ color: 'var(--text-secondary)' }} />
+                  : <IconChevronDown size={12} style={{ color: 'var(--text-secondary)' }} />}
+              </Group>
+              <Collapse expanded={showAdvanced}>
+                <Stack gap="xs">
+                  <NativeSelect
+                    size="xs"
+                    label={lbl(p.labelTimeStep, p.tooltips.labelTimeStep)}
+                    value={timeStepHours}
+                    onChange={e => setTimeStepHours(e.target.value)}
+                    data={TIME_STEPS}
+                    styles={LABEL_STYLES}
+                  />
+                  <TextInput
+                    type="number"
+                    size="xs"
+                    label={lbl(p.labelCmemsMargin, p.tooltips.labelCmemsMargin)}
+                    value={cmemsMargin}
+                    min="0"
+                    max="20"
+                    step="any"
+                    onChange={e => setCmemsMargin(e.target.value)}
+                    styles={LABEL_STYLES}
+                  />
+                </Stack>
+              </Collapse>
 
               <Text
                 size="10px"
@@ -606,18 +758,25 @@ export default function PmarPanel({
                   <Paper p="xs" radius="sm" style={{ background: 'var(--modal-bg)', border: '1px solid var(--modal-divider)' }}>
                     <Stack gap={4}>
                       {[
-                        [p.seedAreaName,    isCustomArea ? p.areaUndefined : areaName],
-                        [p.sectionPressure, p.pressures[sc.pressure]],
-                        [p.labelStart,      sc.start_time],
-                        [p.labelDuration,   `${sc.duration_days} d`],
-                        [p.labelParticles,  sc.pnum?.toLocaleString()],
-                        [p.labelTimeStep,   `${sc.time_step_hours} h`],
+                        [p.seedAreaName,          isCustomArea ? p.areaUndefined : areaName],
+                        [p.sectionPressure,        p.pressures[sc.pressure]],
+                        [p.labelStart,             sc.start_time],
+                        [p.labelDuration,          `${sc.duration_days} d`],
+                        [p.labelParticles,         sc.pnum?.toLocaleString()],
+                        [p.labelTimeStep,          `${sc.time_step_hours} h`],
+                        [p.labelCmemsMarginShort,  `${sc.cmems_margin ?? 5} °`],
                       ].map(([label, val]) => (
                         <Group key={label} justify="space-between" gap="xs">
                           <Text size="10px" c="dimmed">{label}</Text>
                           <Text size="10px" c="gray.3" fw={500}>{val}</Text>
                         </Group>
                       ))}
+                      {sc.seedings > 1 && (
+                        <Group justify="space-between" gap="xs" mt={2}>
+                          <Text size="10px" c="dimmed">{p.labelMultiSeeding}</Text>
+                          <Badge size="xs" variant="light" color="violet">{sc.seedings}× / {sc.tshift}d</Badge>
+                        </Group>
+                      )}
                       {sc.description && (
                         <Text size="10px" c="dimmed" mt={4} style={{ borderTop: '1px solid var(--modal-divider)', paddingTop: 4, lineHeight: 1.5 }}>
                           {sc.description}
@@ -629,9 +788,12 @@ export default function PmarPanel({
               })()}
 
               {/* ── Layer sorgente ────────────────────────────── */}
-              <Text size="xs" fw={600} c="dimmed" tt="uppercase" style={{ letterSpacing: '0.05em' }}>
-                {p.sectionUse}
-              </Text>
+              <Group gap={4} align="center">
+                <Text size="xs" fw={600} c="dimmed" tt="uppercase" style={{ letterSpacing: '0.05em' }}>
+                  {p.sectionUse}
+                </Text>
+                <InfoTooltip text={p.tooltips.sectionUse} />
+              </Group>
               <SimpleGrid cols={2} spacing="xs">
                 {USE_SOURCES.map(u => (
                   <Button
@@ -699,7 +861,7 @@ export default function PmarPanel({
               {/* ── Risoluzione + Margine ─────────────────────── */}
               <NativeSelect
                 size="xs"
-                label={p.labelRes}
+                label={lbl(p.labelRes, p.tooltips.labelRes)}
                 value={res}
                 onChange={e => setRes(e.target.value)}
                 data={RESOLUTIONS}
@@ -708,7 +870,7 @@ export default function PmarPanel({
               <TextInput
                 type="number"
                 size="xs"
-                label={p.labelMargin}
+                label={lbl(p.labelMargin, p.tooltips.labelMargin)}
                 value={margin}
                 min="0"
                 max="20"

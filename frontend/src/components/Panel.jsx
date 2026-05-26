@@ -1,8 +1,9 @@
 import { useState } from 'react'
 import {
   Paper, Tabs, Button, Group, Stack, Text, TextInput,
-  SimpleGrid, ScrollArea,
+  SimpleGrid, ScrollArea, ActionIcon,
 } from '@mantine/core'
+import { IconX } from '@tabler/icons-react'
 import { MODELS, defaultStartTime } from '../constants'
 import { useLang } from '../LanguageContext'
 import ModelCard from './ModelCard'
@@ -146,12 +147,26 @@ export default function Panel({
                 <Text size="xs" c="dimmed" ta="center">{p.hintRect}</Text>
               )}
               {!drawMode && seedInfo && (
-                <Text
-                  size="xs" ta="center" c="blue.4" p="xs"
+                <Group
+                  gap={4}
+                  align="center"
+                  px="xs"
+                  py={6}
                   style={{ background: 'rgba(10,132,255,0.08)', borderRadius: 6, border: '1px solid rgba(10,132,255,0.20)' }}
                 >
-                  {seedInfo}
-                </Text>
+                  <Text size="xs" c="blue.4" style={{ flex: 1, textAlign: 'center' }}>
+                    {seedInfo}
+                  </Text>
+                  <ActionIcon
+                    size={16}
+                    variant="subtle"
+                    color="blue"
+                    onClick={onClearSeedShape}
+                    style={{ flexShrink: 0, opacity: 0.7 }}
+                  >
+                    <IconX size={10} />
+                  </ActionIcon>
+                </Group>
               )}
               {!drawMode && !seedShape && (
                 <Text size="xs" c="dimmed" ta="center">{p.hintNoShape}</Text>

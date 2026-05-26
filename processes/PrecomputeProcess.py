@@ -109,6 +109,18 @@ PROCESS_METADATA = {
             'schema': {'type': 'number', 'default': 5.0},
             'minOccurs': 0, 'maxOccurs': 1,
         },
+        'seedings': {
+            'title': 'Number of seedings',
+            'description': 'How many OpenDrift runs to perform, each shifted by tshift days. Default: 1.',
+            'schema': {'type': 'integer', 'minimum': 1, 'maximum': 12, 'default': 1},
+            'minOccurs': 0, 'maxOccurs': 1,
+        },
+        'tshift': {
+            'title': 'Time shift between seedings (days)',
+            'description': 'Days between consecutive seedings. Ignored if seedings=1. Default: 30.',
+            'schema': {'type': 'integer', 'minimum': 1, 'maximum': 365, 'default': 30},
+            'minOccurs': 0, 'maxOccurs': 1,
+        },
     },
     'outputs': {
         'result': {
@@ -181,6 +193,9 @@ def _build_custom_scenario(data, shp_path=None, area_label=None):
     cmems_margin = max(0.0, min(cmems_margin, 20.0))
     description  = (data.get('description') or '').strip()
 
+    seedings = max(1, min(int(data.get('seedings', 1)), 12))
+    tshift   = max(1, min(int(data.get('tshift', 30)), 365))
+
     sc = {
         'scenario_id':     custom_id,
         'label_it':        label,
@@ -195,7 +210,10 @@ def _build_custom_scenario(data, shp_path=None, area_label=None):
         'res':             res,
         'cmems_margin':    cmems_margin,
         'description':     description,
-        'nc_filename':     f'{custom_id}.nc',
+        'seedings':        seedings,
+        'tshift':          tshift,
+        'nc_filename':     f'{custom_id}_s0.nc',
+        'nc_filenames':    [f'{custom_id}_s{n}.nc' for n in range(seedings)],
         'shapefile':       shp_path,
         'source':          'custom',
     }
@@ -329,6 +347,25 @@ def _run_scenario(scenario_id, sc, shp_path):
         raise
 
 
+def _run_multi_scenario(scenario_id, sc, shp_path):
+    """Esegue N run OpenDrift sfalsati di tshift giorni e salva gli NC files."""
+    seedings = sc.get('seedings', 1)
+    tshift   = sc.get('tshift', 30)
+    nc_filenames = sc.get('nc_filenames', [sc['nc_filename']])
+
+    for n in range(seedings):
+        nc_path = os.path.join(SCENARIOS_DIR, nc_filenames[n])
+        if os.path.exists(nc_path):
+            logger.info(f'[{scenario_id}] Seeding {n+1}/{seedings}: NC già presente, salto.')
+            continue
+        start_n = datetime.fromisoformat(sc['start_time']) + timedelta(days=tshift * n)
+        sc_n = {**sc, 'start_time': start_n.isoformat(), 'nc_filename': nc_filenames[n]}
+        logger.info(f'[{scenario_id}] Seeding {n+1}/{seedings}: start={start_n.date()}')
+        _run_scenario(scenario_id, sc_n, shp_path)
+
+    logger.info(f'[{scenario_id}] Multi-seeding completato ({seedings} run).')
+
+
 class PrecomputeProcessor(BaseProcessor):
 
     def __init__(self, processor_def):
@@ -360,19 +397,21 @@ class PrecomputeProcessor(BaseProcessor):
             raise ProcessorExecuteError('Un pre-calcolo è già in corso. Riprova al termine.')
 
         try:
-            _run_scenario(scenario_id, sc, shp_path)
+            _run_multi_scenario(scenario_id, sc, shp_path)
         except Exception as e:
             logger.error(f'[PrecomputeProcess] Errore nel pre-calcolo di {scenario_id}: {e}', exc_info=True)
             raise ProcessorExecuteError(str(e))
         finally:
             _precompute_lock.release()
 
-        logger.info(f'[PrecomputeProcess] Pre-calcolo completato: {sc["nc_filename"]}')
+        logger.info(f'[PrecomputeProcess] Pre-calcolo completato: {sc["nc_filenames"]}')
 
         return 'application/json', {
-            'scenario_id': scenario_id,
-            'status': 'done',
-            'nc_filename': sc['nc_filename'],
+            'scenario_id':  scenario_id,
+            'status':       'done',
+            'nc_filename':  sc['nc_filename'],
+            'nc_filenames': sc['nc_filenames'],
+            'seedings':     sc['seedings'],
         }
 
     def __repr__(self):

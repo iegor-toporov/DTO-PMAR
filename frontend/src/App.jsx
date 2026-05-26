@@ -309,6 +309,8 @@ function PmarLayer({ pmarData, visible, passagesLabel }) {
   const tooltipRef   = useRef(null)
   const labelRef     = useRef(passagesLabel)
   labelRef.current   = passagesLabel
+  const visibleRef   = useRef(visible)
+  visibleRef.current = visible
 
   useEffect(() => {
     if (!pmarData?.raster_values || !pmarData.bounds) return
@@ -400,6 +402,7 @@ function PmarLayer({ pmarData, visible, passagesLabel }) {
     map.on('mouseout',  () => { tooltip.style.display = 'none' })
     map.fitBounds(L.latLngBounds(pmarData.bounds), { padding: [50, 50] })
     draw()
+    canvas.style.display = visibleRef.current ? '' : 'none'
 
     return () => {
       map.getPanes().overlayPane.removeChild(canvas)
@@ -547,6 +550,22 @@ function ComparisonView({ areas, mapRef, mapTheme, onRemoveArea, onClose }) {
 function getActivePmarData(data, indicator) {
   if (!data) return null
   if (!indicator || indicator === 'density') return data
+  if (indicator === 'std') {
+    if (!data.std_raster_values) return data
+    return {
+      ...data,
+      raster_values:      data.std_raster_values,
+      raster_lon_min:     data.std_raster_lon_min,
+      raster_lat_min:     data.std_raster_lat_min,
+      raster_res:         data.std_raster_res,
+      raster_nx:          data.std_raster_nx,
+      raster_ny:          data.std_raster_ny,
+      colorbar_b64:       data.std_colorbar_b64,
+      colorbar_light_b64: data.std_colorbar_light_b64,
+      vmin:               data.std_vmin,
+      vmax:               data.std_vmax,
+    }
+  }
   const k = indicator
   if (!data[`${k}_raster_values`]) return data
   return {
@@ -931,8 +950,10 @@ export default function App() {
   }
 
   function handleDownloadPmar() {
-    if (!pmarData?.geotiff_b64) return
-    const bytes = atob(pmarData.geotiff_b64)
+    const ind        = activeIndicator || 'density'
+    const geotiffKey = ind === 'density' ? 'geotiff_b64' : `${ind}_geotiff_b64`
+    if (!pmarData?.[geotiffKey]) return
+    const bytes = atob(pmarData[geotiffKey])
     const buf   = new Uint8Array(bytes.length)
     for (let i = 0; i < bytes.length; i++) buf[i] = bytes.charCodeAt(i)
     const blob  = new Blob([buf], { type: 'image/tiff' })
@@ -940,7 +961,7 @@ export default function App() {
     const a     = document.createElement('a')
     a.href      = url
     const src   = pmarData.use_source !== 'none' ? `_${pmarData.use_source}` : ''
-    a.download  = `pmar_${pmarData.pressure}_${pmarData.start_time}-${pmarData.end_time}_p${pmarData.pnum}${src}.tif`
+    a.download  = `pmar_${pmarData.pressure}_${pmarData.start_time}-${pmarData.end_time}_p${pmarData.pnum}${src}_${ind}.tif`
     a.click()
     URL.revokeObjectURL(url)
   }
@@ -1092,7 +1113,8 @@ export default function App() {
           elevated={!!simData}
           activeIndicator={activeIndicator}
           onIndicatorChange={setActiveIndicator}
-          hasIndicators={!!(pmarData?.sum_raster_values)}
+          hasIndicators={!!(pmarData?.sum_raster_values) || !!(pmarData?.std_raster_values)}
+          hasStdRaster={!!(pmarData?.std_raster_values)}
         />
       )}
 

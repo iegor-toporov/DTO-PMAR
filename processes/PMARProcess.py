@@ -267,12 +267,13 @@ class PMARProcessor(BaseProcessor):
                 if not os.path.exists(shp_path):
                     raise ProcessorExecuteError(f'Shapefile per {scenario_id!r} non trovato.')
 
-                nc_output = os.path.join(SCENARIOS_DIR, sc['nc_filename'])
-                if not os.path.exists(nc_output):
-                    raise ProcessorExecuteError(
-                        f'Scenario "{scenario_id}" non ancora pre-calcolato. '
-                        f'Esegui prima precompute_scenarios.py oppure clicca Calcola nel pannello.'
-                    )
+                nc_filenames = sc.get('nc_filenames') or [sc['nc_filename']]
+                for fn in nc_filenames:
+                    if not os.path.exists(os.path.join(SCENARIOS_DIR, fn)):
+                        raise ProcessorExecuteError(
+                            f'Scenario "{scenario_id}" non ancora pre-calcolato (manca {fn}). '
+                            f'Clicca Calcola nel pannello.'
+                        )
                 pressure   = sc['pressure']
                 res        = float(data.get('res', sc['res']))
                 start_time = datetime.fromisoformat(sc['start_time'])
@@ -282,7 +283,7 @@ class PMARProcessor(BaseProcessor):
                 bounds     = gdf.total_bounds
                 logger.info(
                     f'Scenario: id={scenario_id}, use_source={use_source}, '
-                    f'res={res}, margin={margin}, nc={sc["nc_filename"]}'
+                    f'res={res}, margin={margin}, nc_filenames={nc_filenames}'
                 )
 
             # ── Custom mode: simula e poi analizza ────────────────────────
@@ -398,13 +399,21 @@ class PMARProcessor(BaseProcessor):
             pm = PRESSURE_MODELS[pressure]
             try:
                 pmar_basedir = os.path.join(tmpdir, 'pmar_out')
-                p = PMAR(spatial_domain=None, pressure=pressure, basedir=pmar_basedir, loglevel=50)
-                p.ds = xr.open_dataset(nc_output)
 
                 study_area = [
                     float(bounds[0]) - margin, float(bounds[1]) - margin,
                     float(bounds[2]) + margin, float(bounds[3]) + margin,
                 ]
+
+                # Determina lista NC da analizzare (multi-seeding o singolo)
+                if scenario_id:
+                    nc_list = [os.path.join(SCENARIOS_DIR, fn) for fn in nc_filenames]
+                else:
+                    nc_list = [nc_output]
+
+                # Prepara griglia e use_raster usando la prima istanza PMAR
+                p = PMAR(spatial_domain=None, pressure=pressure, basedir=pmar_basedir, loglevel=50)
+                p.ds         = xr.open_dataset(nc_list[0])
                 p.study_area = study_area
                 p.grid       = make_grid(res=res, study_area=study_area)
 
@@ -468,23 +477,43 @@ class PMARProcessor(BaseProcessor):
                         logger.warning('GeoTIFF non ha valori positivi nell\'area di seeding, ignoro i pesi')
                         use_raster = None
 
-                if use_weighted:
-                    p.set_weights(res=res, study_area=study_area, use=use_raster, normalize=True)
+                # ── Loop multi-seeding: calcola istogramma per ogni NC ──────
+                h_list = []
+                for i, nc_path in enumerate(nc_list):
+                    logger.info(f'PMAR: analisi seeding {i+1}/{len(nc_list)}: {nc_path}')
+                    p_i = PMAR(spatial_domain=None, pressure=pressure, basedir=pmar_basedir, loglevel=50)
+                    p_i.ds         = xr.open_dataset(nc_path)
+                    p_i.study_area = study_area
+                    p_i.grid       = make_grid(res=res, study_area=study_area)
+                    if use_weighted:
+                        p_i.set_weights(res=res, study_area=study_area, use=use_raster, normalize=True)
+                    h_i = p_i.get_histogram(
+                        res=res,
+                        study_area=study_area,
+                        weighted=use_weighted,
+                        dim=['trajectory', 'time'],
+                        block_size=len(p_i.ds.time),
+                    )
+                    h_list.append(h_i)
 
-                h = p.get_histogram(
-                    res=res,
-                    study_area=study_area,
-                    weighted=use_weighted,
-                    dim=['trajectory', 'time'],
-                    block_size=len(p.ds.time),
-                )
+                if len(h_list) == 1:
+                    h     = h_list[0]
+                    h_std = None
+                else:
+                    h_stack = xr.concat(h_list, dim='seeding')
+                    h       = h_stack.mean('seeding')
+                    h_std   = h_stack.std('seeding')
+                    logger.info(f'PMAR: media di {len(h_list)} istogrammi calcolata')
+
+                # p e p_i sono usati per get_indicators; usa l'ultima istanza
+                p = p_i
 
                 map_bounds, colorbar_dark_b64, colorbar_light_b64, vmin, vmax = _raster_to_png(h)
                 if map_bounds is None:
                     raise ProcessorExecuteError(
                         'Nessuna particella ha attraversato le aree selezionate.'
                     )
-                geotiff_b64 = _histogram_to_geotiff(h)
+                geotiff_result_b64 = _histogram_to_geotiff(h)
 
                 indicator_sum = indicator_max = indicator_q90 = None
                 try:
@@ -501,7 +530,8 @@ class PMARProcessor(BaseProcessor):
 
                 logger.info(
                     f'PMAR completato: particles={pnum}, steps={len(p.ds.time)}, '
-                    f'use_source={use_source}, weighted={use_weighted}, bounds={map_bounds}'
+                    f'use_source={use_source}, weighted={use_weighted}, bounds={map_bounds}, '
+                    f'seedings={len(nc_list)}'
                 )
 
                 seeding_geojson = json.loads(
@@ -520,24 +550,48 @@ class PMARProcessor(BaseProcessor):
                     'vmax':                float(vmax),
                     'colorbar_b64':        colorbar_dark_b64,
                     'colorbar_light_b64':  colorbar_light_b64,
-                    'geotiff_b64':    geotiff_b64,
-                    'bounds':         map_bounds,
-                    'pressure':       pressure,
-                    'label_it':       pm['label_it'],
-                    'label_en':       pm['label_en'],
-                    'use_source':     use_source,
-                    'use_weighted':   use_weighted,
-                    'start_time':     start_time.strftime('%Y%m%d'),
-                    'end_time':       end_time.strftime('%Y%m%d'),
-                    'pnum':           pnum,
-                    'scenario_id':    scenario_id,
-                    'seeding_geojson': seeding_geojson,
+                    'geotiff_b64':         geotiff_result_b64,
+                    'bounds':              map_bounds,
+                    'pressure':            pressure,
+                    'label_it':            pm['label_it'],
+                    'label_en':            pm['label_en'],
+                    'use_source':          use_source,
+                    'use_weighted':        use_weighted,
+                    'start_time':          start_time.strftime('%Y%m%d'),
+                    'end_time':            end_time.strftime('%Y%m%d'),
+                    'pnum':                pnum,
+                    'scenario_id':         scenario_id,
+                    'seeding_geojson':     seeding_geojson,
+                    'n_seedings':          len(nc_list),
                 }
                 if use_geojson:
                     if use_source == 'windfarms':
                         result['windfarms_geojson'] = use_geojson
                     elif use_source == 'offshore_installations':
                         result['offshore_geojson'] = use_geojson
+
+                # ── Deviazione standard (solo multi-seeding) ─────────────
+                if h_std is not None:
+                    _, std_cb_dark, std_cb_light, std_vmin, std_vmax = _raster_to_png(h_std)
+                    std_geotiff_b64 = _histogram_to_geotiff(h_std)
+                    std_x = h_std.coords['x'].values
+                    std_y = h_std.coords['y'].values
+                    std_arr = np.where(
+                        np.isfinite(h_std.values) & (h_std.values > 0), h_std.values, 0.0
+                    )
+                    result.update({
+                        'std_raster_values':      np.round(std_arr, 3).tolist(),
+                        'std_raster_lon_min':     float(std_x.min()),
+                        'std_raster_lat_min':     float(std_y.min()),
+                        'std_raster_res':         float(res),
+                        'std_raster_nx':          int(len(std_x)),
+                        'std_raster_ny':          int(len(std_y)),
+                        'std_vmin':               float(std_vmin) if std_vmin is not None else 0.0,
+                        'std_vmax':               float(std_vmax) if std_vmax is not None else 1.0,
+                        'std_colorbar_b64':       std_cb_dark,
+                        'std_colorbar_light_b64': std_cb_light,
+                        'std_geotiff_b64':        std_geotiff_b64,
+                    })
 
                 for key, da in [('sum', indicator_sum), ('max', indicator_max), ('q90', indicator_q90)]:
                     if da is not None:
@@ -553,6 +607,7 @@ class PMARProcessor(BaseProcessor):
                             result[f'{key}_colorbar_light_b64']  = ind['colorbar_light_b64']
                             result[f'{key}_vmin']                = ind['vmin']
                             result[f'{key}_vmax']                = ind['vmax']
+                            result[f'{key}_geotiff_b64']         = ind['geotiff_b64']
 
                 return 'application/json', result
 
@@ -735,6 +790,7 @@ def _serialize_indicator(da, res):
         'colorbar_light_b64': colorbar_light_b64,
         'vmin':               float(vmin),
         'vmax':               float(vmax),
+        'geotiff_b64':        _histogram_to_geotiff(da),
     }
 
 

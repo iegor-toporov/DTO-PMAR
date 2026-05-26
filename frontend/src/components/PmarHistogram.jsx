@@ -1,12 +1,10 @@
-import { forwardRef, useEffect, useLayoutEffect, useRef } from 'react'
+import { forwardRef, useEffect, useRef } from 'react'
 import { useMap, useMapEvents } from 'react-leaflet'
 import L from 'leaflet'
-import { Paper, Group, ActionIcon, Button, Text, Box } from '@mantine/core'
-import { IconX, IconDownload } from '@tabler/icons-react'
+import { Button, Text, Box, Group } from '@mantine/core'
+import { IconDownload } from '@tabler/icons-react'
 import { useLang } from '../LanguageContext'
-
-const MODAL_BG     = 'var(--modal-bg)'
-const MODAL_BORDER = '1px solid var(--modal-border)'
+import { FloatingWindow } from './FloatingWindow'
 
 // ── Histogram computation ─────────────────────────────────────────────────────
 
@@ -275,57 +273,10 @@ export const PmarHistogramModal = forwardRef(function PmarHistogramModal({ resul
   const { t } = useLang()
   const c      = t.pmarControls
   const svgRef = useRef(null)
-  const dragRef = useRef({ dragging: false, startX: 0, startY: 0, dx: 0, dy: 0 })
 
-  useLayoutEffect(() => {
-    const el = ref?.current
-    if (!el) return
-    const { width: elW, height: elH } = el.getBoundingClientRect()
-    const { innerWidth: vw, innerHeight: vh } = window
-    const baseBottom = 68 + stackIndex * 24
-    const baseRight  = 16 + stackIndex * 16
-    el.style.top    = `${vh - baseBottom - elH}px`
-    el.style.left   = `${vw - baseRight  - elW}px`
-    el.style.bottom = 'auto'
-    el.style.right  = 'auto'
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps
-
-  useEffect(() => {
-    function onMouseMove(e) {
-      if (!dragRef.current.dragging) return
-      const dx = e.clientX - dragRef.current.startX
-      const dy = e.clientY - dragRef.current.startY
-      dragRef.current.dx = dx
-      dragRef.current.dy = dy
-      if (ref?.current)
-        ref.current.style.transform = `translate(${dx}px, ${dy}px)`
-    }
-    function onMouseUp() {
-      if (!dragRef.current.dragging) return
-      dragRef.current.dragging = false
-      if (ref?.current)
-        ref.current.style.cursor = ''
-    }
-    document.addEventListener('mousemove', onMouseMove)
-    document.addEventListener('mouseup',   onMouseUp)
-    return () => {
-      document.removeEventListener('mousemove', onMouseMove)
-      document.removeEventListener('mouseup',   onMouseUp)
-    }
-  }, [ref])
-
-  function onHeaderMouseDown(e) {
-    e.preventDefault()
-    dragRef.current.dragging = true
-    dragRef.current.startX   = e.clientX - dragRef.current.dx
-    dragRef.current.startY   = e.clientY - dragRef.current.dy
-    if (ref?.current)
-      ref.current.style.cursor = 'grabbing'
-  }
-
-  const dLat   = result.snapLatMax - result.snapLatMin
-  const dLon   = result.snapLonMax - result.snapLonMin
-  const latMid = (result.snapLatMin + result.snapLatMax) / 2
+  const dLat    = result.snapLatMax - result.snapLatMin
+  const dLon    = result.snapLonMax - result.snapLonMin
+  const latMid  = (result.snapLatMin + result.snapLatMax) / 2
   const areaKm2 = Math.abs(dLat * dLon * 111.32 * 111.32 * Math.cos(latMid * Math.PI / 180))
   const areaStr = areaKm2 >= 10 ? `~${Math.round(areaKm2)} km²` : `~${areaKm2.toFixed(1)} km²`
 
@@ -334,15 +285,34 @@ export const PmarHistogramModal = forwardRef(function PmarHistogramModal({ resul
     if (!svg) return
     const { width: svgW, height: svgH } = svg.getBoundingClientRect()
     const pw = Math.round(svgW), ph = Math.round(svgH)
+    const SCALE = 2
+
+    const isDark    = mapTheme !== 'light'
+    const bg        = isDark ? '#2c2c2e' : '#ffffff'
+    const textColor = isDark ? 'rgba(235,235,245,0.55)' : 'rgba(0,0,0,0.45)'
+    const padH = 12, padV = 8, lineH = 18
+    const headerH = padV * 2 + lineH
+
     const canvas = document.createElement('canvas')
-    canvas.width  = pw * 2
-    canvas.height = ph * 2
+    canvas.width  = pw * SCALE
+    canvas.height = (headerH + ph) * SCALE
+    const ctx = canvas.getContext('2d')
+
+    ctx.fillStyle = bg
+    ctx.fillRect(0, 0, canvas.width, canvas.height)
+
+    const meta = `${result.total.toLocaleString()} ${c.histogramCells}  ·  ${areaStr}  ·  min ${formatVal(result.valMin)}  ·  max ${formatVal(result.valMax)}  ·  μ ${formatVal(result.mean)}`
+    ctx.font         = `${10 * SCALE}px system-ui, -apple-system, sans-serif`
+    ctx.fillStyle    = textColor
+    ctx.textBaseline = 'middle'
+    ctx.fillText(meta, padH * SCALE, (padV + lineH / 2) * SCALE)
+
     const clone = svg.cloneNode(true)
     clone.setAttribute('width',  pw)
     clone.setAttribute('height', ph)
     const img = new Image()
     img.onload = () => {
-      canvas.getContext('2d').drawImage(img, 0, 0, pw * 2, ph * 2)
+      ctx.drawImage(img, 0, headerH * SCALE, pw * SCALE, ph * SCALE)
       Object.assign(document.createElement('a'), {
         href:     canvas.toDataURL('image/png'),
         download: `pmar_histogram_${Date.now()}.png`,
@@ -352,41 +322,7 @@ export const PmarHistogramModal = forwardRef(function PmarHistogramModal({ resul
   }
 
   return (
-    <Paper
-      ref={ref}
-      shadow="xl"
-      radius="md"
-      p={0}
-      style={{
-        position: 'fixed',
-        zIndex: 1000,
-        width: 392,
-        minWidth: 260,
-        minHeight: 160,
-        resize: 'both',
-        overflow: 'hidden',
-        background: MODAL_BG,
-        border: MODAL_BORDER,
-        backdropFilter: 'blur(20px) saturate(180%)',
-        WebkitBackdropFilter: 'blur(20px) saturate(180%)',
-      }}
-    >
-      <Group
-        justify="space-between"
-        align="center"
-        px="sm"
-        py={6}
-        style={{ borderBottom: '1px solid var(--modal-divider)', cursor: 'grab', userSelect: 'none' }}
-        onMouseDown={onHeaderMouseDown}
-      >
-        <Text size="xs" fw={600} tt="uppercase" c="dimmed" style={{ letterSpacing: '0.06em' }}>
-          {c.histogramTitle}
-        </Text>
-        <ActionIcon size="xs" variant="subtle" c="dimmed" onClick={onClose}>
-          <IconX size={13} />
-        </ActionIcon>
-      </Group>
-
+    <FloatingWindow ref={ref} title={c.histogramTitle} onClose={onClose} stackIndex={stackIndex} width={392}>
       <Box px="sm" pt="xs" pb={6}>
         {result.total === 0 ? (
           <Text size="xs" c="dimmed" ta="center" py="md">{c.histogramNoData}</Text>
@@ -405,11 +341,7 @@ export const PmarHistogramModal = forwardRef(function PmarHistogramModal({ resul
             </Group>
             <HistogramSVG result={result} mapTheme={mapTheme} svgRef={svgRef} />
             <Button
-              fullWidth
-              size="xs"
-              variant="light"
-              color="blue"
-              mt="xs"
+              fullWidth size="xs" variant="light" color="blue" mt="xs"
               leftSection={<IconDownload size={12} />}
               onClick={downloadPng}
             >
@@ -418,7 +350,7 @@ export const PmarHistogramModal = forwardRef(function PmarHistogramModal({ resul
           </>
         )}
       </Box>
-    </Paper>
+    </FloatingWindow>
   )
 })
 

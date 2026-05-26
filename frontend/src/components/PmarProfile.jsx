@@ -1,10 +1,8 @@
-import { forwardRef, useLayoutEffect, useRef } from 'react'
-import { Paper, Group, ActionIcon, Button, Text, Box } from '@mantine/core'
-import { IconX, IconDownload } from '@tabler/icons-react'
+import { forwardRef, useRef } from 'react'
+import { Button, Text, Box } from '@mantine/core'
+import { IconDownload } from '@tabler/icons-react'
 import { useLang } from '../LanguageContext'
-
-const MODAL_BG     = 'var(--modal-bg)'
-const MODAL_BORDER = '1px solid var(--modal-border)'
+import { FloatingWindow } from './FloatingWindow'
 
 // ── Profile sampling ──────────────────────────────────────────────────────────
 
@@ -46,7 +44,6 @@ function ProfileSVG({ result, mapTheme, svgRef }) {
   const logMax = posValues.length ? Math.log10(Math.max(...posValues)) : 1
   const logRange = logMax - logMin || 1
 
-  // Build SVG path with gaps at zero values
   let d = '', penDown = false
   for (const { dist, value } of pts) {
     if (value <= 0 || !isFinite(value)) { penDown = false; continue }
@@ -59,7 +56,6 @@ function ProfileSVG({ result, mapTheme, svgRef }) {
     penDown = true
   }
 
-  // Y ticks at integer log10 values
   const yTicks = []
   for (let exp = Math.ceil(logMin); exp <= Math.floor(logMax); exp++) {
     const y     = mx.top + ph - ((exp - logMin) / logRange) * ph
@@ -68,7 +64,6 @@ function ProfileSVG({ result, mapTheme, svgRef }) {
     yTicks.push({ y, label })
   }
 
-  // X ticks: 0, mid, end
   const xTicks = [0, 0.5, 1].map(f => ({
     x:     mx.left + f * pw,
     label: (f * totalDist).toFixed(1),
@@ -79,23 +74,19 @@ function ProfileSVG({ result, mapTheme, svgRef }) {
          xmlns="http://www.w3.org/2000/svg"
          style={{ display: 'block', background: bgColor, borderRadius: 4 }}>
 
-      {/* grid */}
       {[0.25, 0.5, 0.75, 1].map(f => {
         const y = mx.top + ph * (1 - f)
         return <line key={f} x1={mx.left} x2={mx.left + pw} y1={y} y2={y}
                      stroke={gridColor} strokeWidth={0.5} />
       })}
 
-      {/* profile line */}
       {d && <path d={d} stroke="#0a84ff" strokeWidth={2} fill="none" />}
 
-      {/* axes */}
       <line x1={mx.left} x2={mx.left + pw} y1={mx.top + ph} y2={mx.top + ph}
             stroke={textColor} strokeWidth={1} />
       <line x1={mx.left} x2={mx.left} y1={mx.top} y2={mx.top + ph}
             stroke={textColor} strokeWidth={1} />
 
-      {/* X ticks */}
       {xTicks.map(({ x, label }) => (
         <g key={label}>
           <line x1={x} x2={x} y1={mx.top + ph} y2={mx.top + ph + 4}
@@ -105,7 +96,6 @@ function ProfileSVG({ result, mapTheme, svgRef }) {
         </g>
       ))}
 
-      {/* Y ticks */}
       {yTicks.map(({ y, label }) => (
         <g key={label}>
           <line x1={mx.left - 4} x2={mx.left} y1={y} y2={y}
@@ -115,7 +105,6 @@ function ProfileSVG({ result, mapTheme, svgRef }) {
         </g>
       ))}
 
-      {/* axis labels */}
       <text x={mx.left + pw / 2} y={H - 3} textAnchor="middle"
             fontSize={9} fill={textColor}>dist. (km)</text>
       <text x={10} y={mx.top + ph / 2} textAnchor="middle"
@@ -133,48 +122,6 @@ export const PmarProfileModal = forwardRef(function PmarProfileModal(
   const { t } = useLang()
   const c      = t.toolsPanel
   const svgRef = useRef(null)
-  const dragRef = useRef({ dragging: false, startX: 0, startY: 0, dx: 0, dy: 0 })
-
-  useLayoutEffect(() => {
-    const el = ref?.current
-    if (!el) return
-    const { width: elW, height: elH } = el.getBoundingClientRect()
-    const { innerWidth: vw, innerHeight: vh } = window
-    el.style.top    = `${vh - 68 - stackIndex * 24 - elH}px`
-    el.style.left   = `${vw - 16 - stackIndex * 16 - elW}px`
-    el.style.bottom = 'auto'
-    el.style.right  = 'auto'
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps
-
-  useLayoutEffect(() => {
-    function onMouseMove(e) {
-      if (!dragRef.current.dragging) return
-      dragRef.current.dx = e.clientX - dragRef.current.startX
-      dragRef.current.dy = e.clientY - dragRef.current.startY
-      if (ref?.current)
-        ref.current.style.transform =
-          `translate(${dragRef.current.dx}px, ${dragRef.current.dy}px)`
-    }
-    function onMouseUp() {
-      if (!dragRef.current.dragging) return
-      dragRef.current.dragging = false
-      if (ref?.current) ref.current.style.cursor = ''
-    }
-    document.addEventListener('mousemove', onMouseMove)
-    document.addEventListener('mouseup',   onMouseUp)
-    return () => {
-      document.removeEventListener('mousemove', onMouseMove)
-      document.removeEventListener('mouseup',   onMouseUp)
-    }
-  }, [ref])
-
-  function onHeaderMouseDown(e) {
-    e.preventDefault()
-    dragRef.current.dragging = true
-    dragRef.current.startX   = e.clientX - dragRef.current.dx
-    dragRef.current.startY   = e.clientY - dragRef.current.dy
-    if (ref?.current) ref.current.style.cursor = 'grabbing'
-  }
 
   const hasData = result.pts?.some(p => p.value > 0)
 
@@ -201,41 +148,7 @@ export const PmarProfileModal = forwardRef(function PmarProfileModal(
   }
 
   return (
-    <Paper
-      ref={ref}
-      shadow="xl"
-      radius="md"
-      p={0}
-      style={{
-        position: 'fixed',
-        zIndex: 1000,
-        width: 360,
-        minWidth: 260,
-        minHeight: 160,
-        resize: 'both',
-        overflow: 'hidden',
-        background: MODAL_BG,
-        border: MODAL_BORDER,
-        backdropFilter: 'blur(20px) saturate(180%)',
-        WebkitBackdropFilter: 'blur(20px) saturate(180%)',
-      }}
-    >
-      <Group
-        justify="space-between"
-        align="center"
-        px="sm"
-        py={6}
-        style={{ borderBottom: '1px solid var(--modal-divider)', cursor: 'grab', userSelect: 'none' }}
-        onMouseDown={onHeaderMouseDown}
-      >
-        <Text size="xs" fw={600} tt="uppercase" c="dimmed" style={{ letterSpacing: '0.06em' }}>
-          {c.profileTitle}
-        </Text>
-        <ActionIcon size="xs" variant="subtle" c="dimmed" onClick={onClose}>
-          <IconX size={13} />
-        </ActionIcon>
-      </Group>
-
+    <FloatingWindow ref={ref} title={c.profileTitle} onClose={onClose} stackIndex={stackIndex} width={360}>
       <Box px="sm" pt="xs" pb={6}>
         {!hasData ? (
           <Text size="xs" c="dimmed" ta="center" py="md">{c.profileNoData}</Text>
@@ -243,11 +156,7 @@ export const PmarProfileModal = forwardRef(function PmarProfileModal(
           <>
             <ProfileSVG result={result} mapTheme={mapTheme} svgRef={svgRef} />
             <Button
-              fullWidth
-              size="xs"
-              variant="light"
-              color="blue"
-              mt="xs"
+              fullWidth size="xs" variant="light" color="blue" mt="xs"
               leftSection={<IconDownload size={12} />}
               onClick={downloadPng}
             >
@@ -256,6 +165,6 @@ export const PmarProfileModal = forwardRef(function PmarProfileModal(
           </>
         )}
       </Box>
-    </Paper>
+    </FloatingWindow>
   )
 })
