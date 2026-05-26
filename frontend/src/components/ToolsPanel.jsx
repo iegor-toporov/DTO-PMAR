@@ -1,7 +1,7 @@
 import { Tooltip, ActionIcon, Badge } from '@mantine/core'
 import {
   IconChartBar, IconChartAreaLine, IconWaveSine,
-  IconBolt, IconFileTypeCsv, IconStack2,
+  IconBolt, IconFileTypeCsv, IconStack2, IconX,
 } from '@tabler/icons-react'
 import { useLang } from '../LanguageContext'
 
@@ -19,6 +19,8 @@ export default function ToolsPanel({
   onSetTool,
   hasRaster,
   comparisonAreaCount = 0,
+  openWindowCount = 0,
+  onCloseAll,
 }) {
   const { t } = useLang()
   const c = t.toolsPanel
@@ -28,7 +30,7 @@ export default function ToolsPanel({
       position: 'absolute',
       top: 110,
       right: 16,
-      zIndex: 1000,
+      zIndex: 9999,
       display: 'flex',
       flexDirection: 'column',
       gap: 6,
@@ -81,6 +83,53 @@ export default function ToolsPanel({
           </Tooltip>
         )
       })}
+
+      {openWindowCount > 0 && (
+        <>
+          <div style={{
+            width: 24,
+            height: 1,
+            background: 'var(--panel-border)',
+            margin: '2px 0',
+          }} />
+          <Tooltip label={`${c.closeAllBtn} (${openWindowCount})`} position="left" withArrow>
+            <div style={{ position: 'relative' }}>
+              <ActionIcon
+                size={36}
+                radius="md"
+                variant="subtle"
+                color="red"
+                onClick={onCloseAll}
+                style={{
+                  backdropFilter: 'blur(20px) saturate(180%)',
+                  background: 'var(--panel-bg)',
+                  border: '1px solid var(--panel-border)',
+                }}
+              >
+                <IconX size={16} />
+              </ActionIcon>
+              <Badge
+                size="xs"
+                color="red"
+                circle
+                style={{
+                  position: 'absolute',
+                  top: -4,
+                  right: -4,
+                  fontSize: 8,
+                  minWidth: 14,
+                  height: 14,
+                  padding: 0,
+                  pointerEvents: 'none',
+                  zIndex: 1,
+                }}
+              >
+                {openWindowCount}
+              </Badge>
+            </div>
+          </Tooltip>
+        </>
+      )}
     </div>
   )
 }

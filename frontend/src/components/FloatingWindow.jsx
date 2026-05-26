@@ -1,13 +1,31 @@
-import { forwardRef, useLayoutEffect, useRef } from 'react'
+import { forwardRef, useLayoutEffect, useEffect, useRef, useState } from 'react'
 import Draggable from 'react-draggable'
 import { Paper, Group, ActionIcon, Text } from '@mantine/core'
 import { IconX } from '@tabler/icons-react'
+
+let _highestZ = 1000
 
 export const FloatingWindow = forwardRef(function FloatingWindow(
   { title, onClose, stackIndex = 0, width, minWidth = 220, children },
   ref
 ) {
   const nodeRef = useRef(null)
+  const [zIndex, setZIndex] = useState(() => ++_highestZ)
+
+  useEffect(() => {
+    const el = nodeRef.current
+    if (!el) return
+    let myZ = _highestZ
+    const onDown = () => {
+      if (myZ < _highestZ) {
+        myZ = ++_highestZ
+        el.style.zIndex = myZ
+        setZIndex(myZ)
+      }
+    }
+    el.addEventListener('mousedown', onDown, true)
+    return () => el.removeEventListener('mousedown', onDown, true)
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   useLayoutEffect(() => {
     const el = nodeRef.current
@@ -31,7 +49,7 @@ export const FloatingWindow = forwardRef(function FloatingWindow(
         p={0}
         style={{
           position:              'fixed',
-          zIndex:                1000,
+          zIndex,
           width,
           minWidth,
           minHeight:             160,

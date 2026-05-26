@@ -50,6 +50,9 @@ export default function Panel({
   useSource, onUseSourceChange,
   windfarmsLoading, windfarmsEmpty,
   offshoreLoading, offshoreEmpty,
+  natura2000Loading, natura2000Empty, natura2000Geojson,
+  showNatura2000, onFetchNatura2000, onToggleNatura2000,
+  hasSeedShape,
 }) {
   const { t } = useLang()
   const [selectedModel, setSelectedModel] = useState('OceanDrift')
@@ -251,6 +254,13 @@ export default function Panel({
               windfarmsEmpty={windfarmsEmpty}
               offshoreLoading={offshoreLoading}
               offshoreEmpty={offshoreEmpty}
+              natura2000Loading={natura2000Loading}
+              natura2000Empty={natura2000Empty}
+              natura2000Geojson={natura2000Geojson}
+              showNatura2000={showNatura2000}
+              onFetchNatura2000={onFetchNatura2000}
+              onToggleNatura2000={onToggleNatura2000}
+              hasSeedShape={hasSeedShape}
             />
           </ScrollArea>
         </Tabs.Panel>

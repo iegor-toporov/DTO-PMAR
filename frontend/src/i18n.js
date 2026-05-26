@@ -148,12 +148,23 @@ export const translations = {
       thresholdArea:   'km²',
       thresholdPct:    'del totale',
       csvBtn:          'CSV',
-      comparisonBtn:      'Confronto',
+      closeAllBtn:     'Chiudi tutte',
+      comparisonBtn:   'Confronto',
       comparisonTitle:    'Confronto aree',
       comparisonAreas:    'aree',
       comparisonAddHint:  'Seleziona aree sulla mappa per confrontarle',
       comparisonNeedMore: "Aggiungi almeno un'altra area per confrontare",
       comparisonDownload: 'Scarica PNG',
+    },
+
+    layersPanel: {
+      title:           'Layer aggiuntivi',
+      natura2000Btn:   'Natura 2000 Sites',
+      natura2000Info:  'Visualizzato nell\'area di studio (fonte: EMODnet)',
+      natura2000Empty: 'Nessun sito Natura 2000 trovato nell\'area',
+      noAreaWarning:   'Seleziona prima un\'area di studio',
+      toggleOn:        'Visibile',
+      toggleOff:       'Nascosto',
     },
 
     pmarControls: {
@@ -353,12 +364,23 @@ export const translations = {
       thresholdArea:   'km²',
       thresholdPct:    'of total',
       csvBtn:          'CSV',
+      closeAllBtn:     'Close all',
       comparisonBtn:      'Compare',
       comparisonTitle:    'Area comparison',
       comparisonAreas:    'areas',
       comparisonAddHint:  'Draw areas on the map to compare them',
       comparisonNeedMore: 'Add at least one more area to compare',
       comparisonDownload: 'Download PNG',
+    },
+
+    layersPanel: {
+      title:           'Additional layers',
+      natura2000Btn:   'Natura 2000 Sites',
+      natura2000Info:  'Shown for the study area (source: EMODnet)',
+      natura2000Empty: 'No Natura 2000 sites found in this area',
+      noAreaWarning:   'Select a study area first',
+      toggleOn:        'Visible',
+      toggleOff:       'Hidden',
     },
 
     pmarControls: {

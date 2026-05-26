@@ -888,6 +888,53 @@ def _fetch_offshore_installations(study_area, cache_dir):
     return gdf
 
 
+def _fetch_natura2000(study_area, cache_dir):
+    """Query EMODnet WFS for Natura 2000 marine sites within study_area, with 7-day file cache."""
+    import hashlib
+    import pickle
+
+    lon_min, lat_min, lon_max, lat_max = study_area
+    cache_key  = hashlib.md5(
+        f'n2k_{lon_min:.3f}_{lat_min:.3f}_{lon_max:.3f}_{lat_max:.3f}'.encode()
+    ).hexdigest()
+    cache_file = os.path.join(cache_dir, f'natura2000_{cache_key}.pkl')
+
+    if os.path.exists(cache_file):
+        age = _time.time() - os.path.getmtime(cache_file)
+        if age < 7 * 86400:
+            with open(cache_file, 'rb') as f:
+                return pickle.load(f)
+
+    bbox_str = f'{lon_min},{lat_min},{lon_max},{lat_max},EPSG:4326'
+    base_url = 'https://ows.emodnet-humanactivities.eu/wfs?SERVICE=WFS&VERSION=2.0.0&REQUEST=GetFeature&OUTPUTFORMAT=application/json'
+    gdf = None
+    for layer in ('emodnet:natura2000areas', 'emodnet:marineprotectedareas'):
+        url = f'{base_url}&TYPENAMES={layer}&BBOX={bbox_str}'
+        try:
+            candidate = gpd.read_file(url)
+            if not candidate.empty:
+                gdf = candidate
+                logger.info(f'EMODnet layer usato: {layer}, features: {len(gdf)}')
+                break
+            logger.debug(f'EMODnet layer {layer}: 0 features nell\'area')
+        except Exception as exc:
+            logger.warning(f'EMODnet WFS {layer} fallito: {exc}')
+
+    if gdf is None:
+        return gpd.GeoDataFrame(geometry=gpd.GeoSeries([], dtype='geometry', crs='EPSG:4326'))
+
+    if gdf.crs is None:
+        gdf = gdf.set_crs('EPSG:4326')
+    else:
+        gdf = gdf.to_crs('EPSG:4326')
+
+    os.makedirs(cache_dir, exist_ok=True)
+    with open(cache_file, 'wb') as f:
+        pickle.dump(gdf, f)
+
+    return gdf
+
+
 def _geotiff_to_use_raster(geotiff_b64, grid):
     """Reproject and resample a base64-encoded GeoTIFF onto the PMAR grid.
 

@@ -277,6 +277,39 @@ function WindFarmsLayer({ geojson, visible }) {
   return null
 }
 
+// ── EMODnet Natura 2000 sites overlay ────────────────────────────────────────
+function Natura2000Layer({ geojson, visible }) {
+  const map      = useMap()
+  const layerRef = useRef(null)
+
+  useEffect(() => {
+    layerRef.current?.remove()
+    layerRef.current = null
+    if (!geojson?.features?.length) return
+    layerRef.current = L.geoJSON(geojson, {
+      style: {
+        color:       '#16a34a',
+        fillColor:   '#86efac',
+        fillOpacity: 0.20,
+        weight:      1.5,
+        opacity:     0.85,
+        dashArray:   '4 3',
+      },
+    }).addTo(map)
+    return () => { layerRef.current?.remove(); layerRef.current = null }
+  }, [geojson, map])
+
+  useEffect(() => {
+    if (!layerRef.current) return
+    layerRef.current.setStyle({
+      opacity:     visible ? 0.85 : 0,
+      fillOpacity: visible ? 0.20 : 0,
+    })
+  }, [visible])
+
+  return null
+}
+
 // ── PMAR seeding area polygon layer ─────────────────────────────────────────
 function SeedingAreaLayer({ geojson, visible }) {
   const map      = useMap()
@@ -400,7 +433,6 @@ function PmarLayer({ pmarData, visible, passagesLabel }) {
     map.on('moveend zoomend resize', draw)
     map.on('mousemove', onMouseMove)
     map.on('mouseout',  () => { tooltip.style.display = 'none' })
-    map.fitBounds(L.latLngBounds(pmarData.bounds), { padding: [50, 50] })
     draw()
     canvas.style.display = visibleRef.current ? '' : 'none'
 
@@ -631,6 +663,11 @@ export default function App() {
   const [offshoreEmpty,    setOffshoreEmpty]    = useState(false)
   const [showOffshoreInstallations, setShowOffshoreInstallations] = useState(true)
 
+  const [natura2000Geojson, setNatura2000Geojson] = useState(null)
+  const [showNatura2000,    setShowNatura2000]    = useState(true)
+  const [natura2000Loading, setNatura2000Loading] = useState(false)
+  const [natura2000Empty,   setNatura2000Empty]   = useState(false)
+
   const windfarmsGeoJSON = pmarData?.windfarms_geojson ?? windfarmsPreview
   const offshoreGeoJSON  = pmarData?.offshore_geojson  ?? offshorePreview
 
@@ -858,6 +895,8 @@ export default function App() {
 
       const label = lang === 'it' ? data.label_it : data.label_en
       setPmarData(data)
+      if (data.bounds && mapRef.current)
+        mapRef.current.fitBounds(L.latLngBounds(data.bounds), { padding: [50, 50] })
       setActiveIndicator('density')
       setActiveMapTool(null)
       setHistograms(prev        => { prev.forEach(h => h.layer?.remove()); return [] })
@@ -949,6 +988,43 @@ export default function App() {
     setComparisonAreas(prev => [...prev, { id: Date.now(), result: { ...hist, ...snap }, layer }])
   }
 
+  function handleCloseAll() {
+    setHistograms(prev       => { prev.forEach(h => h.layer?.remove()); return [] })
+    setStatsEntries(prev     => { prev.forEach(h => h.layer?.remove()); return [] })
+    setProfileEntries(prev   => { prev.forEach(h => h.layer?.remove()); return [] })
+    setThresholdEntries(prev => { prev.forEach(h => h.layer?.remove()); return [] })
+    setComparisonAreas(prev  => { prev.forEach(a => a.layer?.remove()); return [] })
+  }
+
+  async function handleFetchNatura2000() {
+    let bounds = seedShapeBounds(seedShape)
+    if (!bounds && pmarData?.bounds) {
+      const [[lat_min, lon_min], [lat_max, lon_max]] = pmarData.bounds
+      bounds = { lon_min, lat_min, lon_max, lat_max }
+    }
+    if (!bounds) return
+    setNatura2000Loading(true)
+    setNatura2000Empty(false)
+    try {
+      const resp = await fetch('/processes/natura2000/execution', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ inputs: bounds }),
+      })
+      const raw  = await resp.json()
+      const data = raw.result ?? raw
+      if (data?.features?.length > 0) {
+        setNatura2000Geojson(data)
+      } else {
+        setNatura2000Empty(true)
+      }
+    } catch {
+      setNatura2000Empty(true)
+    } finally {
+      setNatura2000Loading(false)
+    }
+  }
+
   function handleDownloadPmar() {
     const ind        = activeIndicator || 'density'
     const geotiffKey = ind === 'density' ? 'geotiff_b64' : `${ind}_geotiff_b64`
@@ -986,6 +1062,7 @@ export default function App() {
         <SeedingAreaLayer geojson={pmarData?.seeding_geojson ?? null} visible={showSeedShape} />
         <WindFarmsLayer geojson={windfarmsGeoJSON} visible={showWindFarms} />
         <OffshoreInstallationsLayer geojson={offshoreGeoJSON} visible={showOffshoreInstallations} />
+        <Natura2000Layer geojson={natura2000Geojson} visible={showNatura2000} />
         <SeedDrawer
           drawMode={drawMode}
           seedShape={seedShape}
@@ -1082,6 +1159,13 @@ export default function App() {
         windfarmsEmpty={windfarmsEmpty}
         offshoreLoading={offshoreLoading}
         offshoreEmpty={offshoreEmpty}
+        natura2000Loading={natura2000Loading}
+        natura2000Empty={natura2000Empty}
+        natura2000Geojson={natura2000Geojson}
+        showNatura2000={showNatura2000}
+        onFetchNatura2000={handleFetchNatura2000}
+        onToggleNatura2000={() => setShowNatura2000(v => !v)}
+        hasSeedShape={!!seedShape || !!pmarData}
       />
 
       {pmarData && showPmarRaster && (() => {
@@ -1123,6 +1207,8 @@ export default function App() {
         onSetTool={toggleTool}
         hasRaster={!!pmarData}
         comparisonAreaCount={comparisonAreas.length}
+        openWindowCount={histograms.length + statsEntries.length + profileEntries.length + thresholdEntries.length + comparisonAreas.length}
+        onCloseAll={handleCloseAll}
       />
 
       {histograms.map((h, i) => (

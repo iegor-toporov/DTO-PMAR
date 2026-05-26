@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom'
 import {
   Tabs, Button, Group, Stack, Text, TextInput, Textarea,
   SimpleGrid, SegmentedControl, NativeSelect, Paper, ScrollArea,
-  Switch, Badge, Collapse, ActionIcon,
+  Switch, Badge, Collapse, ActionIcon, Divider,
 } from '@mantine/core'
 import { IconInfoCircle, IconX, IconChevronDown, IconChevronUp } from '@tabler/icons-react'
 import { useLang } from '../LanguageContext'
@@ -153,6 +153,9 @@ export default function PmarPanel({
   useSource, onUseSourceChange,
   windfarmsLoading, windfarmsEmpty,
   offshoreLoading, offshoreEmpty,
+  natura2000Loading, natura2000Empty, natura2000Geojson,
+  showNatura2000, onFetchNatura2000, onToggleNatura2000,
+  hasSeedShape,
 }) {
   const { t, lang } = useLang()
   const p = t.pmar
@@ -888,6 +891,49 @@ export default function PmarPanel({
                   {status}
                 </Text>
               )}
+              {/* ── Layer aggiuntivi ──────────────────────────── */}
+              <Divider my={4} />
+              <Stack gap="xs">
+                <Text size="xs" fw={600} c="dimmed" tt="uppercase" style={{ letterSpacing: '0.05em' }}>
+                  {t.layersPanel.title}
+                </Text>
+
+                <Group gap="xs" align="center">
+                  <Button
+                    size="xs"
+                    variant="light"
+                    color="teal"
+                    flex={1}
+                    loading={natura2000Loading}
+                    disabled={!hasSeedShape || natura2000Loading}
+                    onClick={onFetchNatura2000}
+                    type="button"
+                  >
+                    {t.layersPanel.natura2000Btn}
+                  </Button>
+                  {natura2000Geojson && (
+                    <Switch
+                      size="xs"
+                      checked={showNatura2000}
+                      onChange={onToggleNatura2000}
+                    />
+                  )}
+                </Group>
+
+                {!hasSeedShape && (
+                  <Text size="xs" c="dimmed" ta="center">{t.layersPanel.noAreaWarning}</Text>
+                )}
+                {hasSeedShape && natura2000Empty && (
+                  <Text size="xs" c="red.4" p="xs" style={{ background: 'rgba(239,68,68,0.07)', borderRadius: 6, borderLeft: '2px solid rgba(239,68,68,0.4)' }}>
+                    {t.layersPanel.natura2000Empty}
+                  </Text>
+                )}
+                {hasSeedShape && natura2000Geojson && !natura2000Empty && (
+                  <Text size="xs" c="teal.4" p="xs" style={{ background: 'rgba(20,184,166,0.07)', borderRadius: 6, borderLeft: '2px solid rgba(20,184,166,0.45)' }}>
+                    {t.layersPanel.natura2000Info}
+                  </Text>
+                )}
+              </Stack>
             </Stack>
           </Tabs.Panel>
         </Tabs>
