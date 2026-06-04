@@ -14,7 +14,7 @@ body {
   height: 100vh;
   overflow: hidden;
   /* Background managed by data-mantine-color-scheme rules in App.css */
-  background: #1c1c1e;
+  background: #26262b;
 }
 
 #root {

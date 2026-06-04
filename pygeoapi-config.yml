@@ -3,8 +3,6 @@ server:
         host: 0.0.0.0  # listening address for incoming connections
         port: 5001  # listening port for incoming connections
     url: http://localhost:5001/  # url of server
-  #icon: https://example.org/favicon.ico  # favicon / shortcut icon for default HTML template customization
-  #logo: https://example.org/logo.png  # logo/banner for default HTML template customization
     mimetype: application/json; charset=UTF-8  # default MIME type
     encoding: utf-8  # default server encoding
     language: en-US  # default server language
@@ -23,13 +21,6 @@ server:
         max_distance_units: m
         on_exceed: throttle  # throttle or error (default=throttle)
 
-  # configuration to specify directory tree for HTML page templates
-  # omit this to use the default pygeoapi templates
-  # overridable when redefined in resource level configuration
-    templates:
-        path: /Users/endthcb/Documents/1. MS CE/ISMAR/demo_5/tmp/pygeoapi-skin-dashboard/templates
-        static: /Users/endthcb/Documents/1. MS CE/ISMAR/demo_5/tmp/pygeoapi-skin-dashboard/static
-
   # leaflet map setup for HTML template rendering
     map:
         url: https://tile.openstreetmap.org/{z}/{x}/{y}.png
@@ -37,14 +28,13 @@ server:
 
   # optional OGC API - Processes asynchronous job management configuration
     manager:
-        name: TinyDB  # plugin name (see pygeoapi.plugin for supported process_manager's)
-        connection: /tmp/pygeoapi-process-manager.db  # connection info to store jobs (e.g. filepath)
-        output_dir: /tmp/  # temporary file area for storing job results (files)
+        name: worker.manager.CeleryManager
+        connection: null
+        output_dir: /tmp/
 
 
 logging:
     level: WARNING
-    logfile: logs/pygeoapi/pygeoapi.log
 
 metadata:
     identification:

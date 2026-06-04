@@ -1,0 +1,80 @@
+services:
+
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      secrets:
+        - git_token
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      PYGEOAPI_CONFIG_SRC: /app/pygeoapi-config.yml
+      PYGEOAPI_CONFIG: /tmp/pygeoapi-runtime.yml
+      PYGEOAPI_OPENAPI: /tmp/pygeoapi-openapi.yml
+      PYTHONPATH: /app
+      REDIS_URL: redis://redis:6379/0
+    volumes:
+      - ./cache:/app/cache
+      - ./out:/app/out
+      - ./scenarios:/app/scenarios
+    expose:
+      - "5001"
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5001/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  celery-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      secrets:
+        - git_token
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      PYTHONPATH: /app
+      REDIS_URL: redis://redis:6379/0
+    command: ["celery", "-A", "worker.app", "worker", "--loglevel=info", "--concurrency=1"]
+    volumes:
+      - ./cache:/app/cache
+      - ./out:/app/out
+      - ./scenarios:/app/scenarios
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+
+volumes:
+  redis-data:
+
+secrets:
+  git_token:
+    file: .git_token

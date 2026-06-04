@@ -3,6 +3,7 @@ import glob
 import io
 import json
 import os
+import shutil
 import uuid
 import time as _time
 import threading
@@ -225,7 +226,7 @@ def _build_custom_scenario(data, shp_path=None, area_label=None):
     return sc, custom_id, shp_path
 
 
-def _run_scenario(scenario_id, sc, shp_path):
+def _run_scenario(scenario_id, sc, shp_path, cmems_creds=None):
     nc_output = os.path.join(SCENARIOS_DIR, sc['nc_filename'])
 
     if os.path.exists(nc_output):
@@ -251,7 +252,7 @@ def _run_scenario(scenario_id, sc, shp_path):
     max_depth = pm_cfg.get('max_depth', 0.5)
     if pm_cfg.get('needs_vertical'):
         dynamic = _get_max_depth_for_area(
-            bounds[0], bounds[2], bounds[1], bounds[3], cmems_margin
+            bounds[0], bounds[2], bounds[1], bounds[3], cmems_margin, cmems_creds=cmems_creds
         )
         if dynamic is not None:
             max_depth = dynamic
@@ -261,21 +262,22 @@ def _run_scenario(scenario_id, sc, shp_path):
     forcing_paths = [_get_forcing_file(
         bounds[0], bounds[2], bounds[1], bounds[3],
         start_time, end_time, time_step_hours, max_depth, cmems_margin,
+        cmems_creds=cmems_creds,
     )]
     if pm_cfg['needs_wind']:
-        wind_path = _get_wind_file(bounds[0], bounds[2], bounds[1], bounds[3], start_time, end_time, cmems_margin)
+        wind_path = _get_wind_file(bounds[0], bounds[2], bounds[1], bounds[3], start_time, end_time, cmems_margin, cmems_creds=cmems_creds)
         if wind_path:
             forcing_paths.append(wind_path)
         else:
             logger.warning(f'[{scenario_id}] Vento non disponibile, solo correnti')
     if pm_cfg.get('needs_waves'):
-        waves_path = _get_waves_file(bounds[0], bounds[2], bounds[1], bounds[3], start_time, end_time, cmems_margin)
+        waves_path = _get_waves_file(bounds[0], bounds[2], bounds[1], bounds[3], start_time, end_time, cmems_margin, cmems_creds=cmems_creds)
         if waves_path:
             forcing_paths.append(waves_path)
         else:
             logger.warning(f'[{scenario_id}] Onde non disponibili: deriva di Stokes parametrizzata dal vento')
     if pm_cfg.get('needs_thermo'):
-        thermo_path = _get_thermo_file(bounds[0], bounds[2], bounds[1], bounds[3], start_time, end_time, cmems_margin)
+        thermo_path = _get_thermo_file(bounds[0], bounds[2], bounds[1], bounds[3], start_time, end_time, cmems_margin, cmems_creds=cmems_creds)
         if thermo_path:
             forcing_paths.append(thermo_path)
         else:
@@ -337,7 +339,7 @@ def _run_scenario(scenario_id, sc, shp_path):
         elapsed = (_time.monotonic() - t0) / 60
         logger.info(f'[{scenario_id}] Simulazione completata in {elapsed:.1f} minuti')
 
-        os.rename(tmp_nc, nc_output)
+        shutil.move(tmp_nc, nc_output)
         logger.info(f'[{scenario_id}] NC salvato: {nc_output}')
 
     except Exception as e:
@@ -347,7 +349,7 @@ def _run_scenario(scenario_id, sc, shp_path):
         raise
 
 
-def _run_multi_scenario(scenario_id, sc, shp_path):
+def _run_multi_scenario(scenario_id, sc, shp_path, cmems_creds=None):
     """Esegue N run OpenDrift sfalsati di tshift giorni e salva gli NC files."""
     seedings = sc.get('seedings', 1)
     tshift   = sc.get('tshift', 30)
@@ -361,7 +363,7 @@ def _run_multi_scenario(scenario_id, sc, shp_path):
         start_n = datetime.fromisoformat(sc['start_time']) + timedelta(days=tshift * n)
         sc_n = {**sc, 'start_time': start_n.isoformat(), 'nc_filename': nc_filenames[n]}
         logger.info(f'[{scenario_id}] Seeding {n+1}/{seedings}: start={start_n.date()}')
-        _run_scenario(scenario_id, sc_n, shp_path)
+        _run_scenario(scenario_id, sc_n, shp_path, cmems_creds=cmems_creds)
 
     logger.info(f'[{scenario_id}] Multi-seeding completato ({seedings} run).')
 
@@ -375,6 +377,12 @@ class PrecomputeProcessor(BaseProcessor):
         geojson_input  = data.get('geojson')
         shapefile_b64  = data.get('shapefile_b64')
         t4msp_area_id  = data.get('t4msp_area_id')
+
+        cmems_creds = None
+        u = (data.get('cmems_username') or '').strip()
+        p = (data.get('cmems_password') or '').strip()
+        if u and p:
+            cmems_creds = {'username': u, 'password': p}
 
         if not geojson_input and not shapefile_b64 and not t4msp_area_id:
             raise ProcessorExecuteError('Fornire geojson, shapefile_b64 oppure t4msp_area_id.')
@@ -397,7 +405,7 @@ class PrecomputeProcessor(BaseProcessor):
             raise ProcessorExecuteError('Un pre-calcolo è già in corso. Riprova al termine.')
 
         try:
-            _run_multi_scenario(scenario_id, sc, shp_path)
+            _run_multi_scenario(scenario_id, sc, shp_path, cmems_creds=cmems_creds)
         except Exception as e:
             logger.error(f'[PrecomputeProcess] Errore nel pre-calcolo di {scenario_id}: {e}', exc_info=True)
             raise ProcessorExecuteError(str(e))

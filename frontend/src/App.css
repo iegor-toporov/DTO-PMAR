@@ -1,7 +1,7 @@
 /* ── Color-scheme-aware body background + text color ─────────────────────── */
 html[data-mantine-color-scheme="dark"],
 html[data-mantine-color-scheme="dark"] body {
-  background: #1c1c1e;
+  background: #26262b;
   color: #ffffff;
 }
 
@@ -9,6 +9,9 @@ html[data-mantine-color-scheme="light"],
 html[data-mantine-color-scheme="light"] body {
   background: #f2f2f7;
   color: #1c1c1e;
+  --modal-bg:      #ffffff;
+  --modal-border:  rgba(0, 0, 0, 0.09);
+  --modal-divider: rgba(0, 0, 0, 0.06);
 }
 
 /* ── Apple design tokens ─────────────────────────────────────────────────────
@@ -16,11 +19,11 @@ html[data-mantine-color-scheme="light"] body {
    to all absolutely-positioned children that use inline CSS variables.     */
 :root,
 [data-theme="dark"] {
-  --panel-bg:        rgba(28, 28, 30, 0.88);
-  --panel-border:    rgba(255, 255, 255, 0.10);
-  --modal-bg:        #2c2c2e;
-  --modal-border:    rgba(255, 255, 255, 0.10);
-  --modal-divider:   rgba(255, 255, 255, 0.07);
+  --panel-bg:        rgba(52, 52, 60, 0.92);
+  --panel-border:    rgba(255, 255, 255, 0.13);
+  --modal-bg:        #3a3a42;
+  --modal-border:    rgba(255, 255, 255, 0.13);
+  --modal-divider:   rgba(255, 255, 255, 0.09);
   --accent:          #0a84ff;
   --accent-subtle:   rgba(10, 132, 255, 0.13);
   --text-primary:    #ffffff;
@@ -49,7 +52,7 @@ html[data-mantine-color-scheme="light"] body {
 .pmar-colorbar {
   position: absolute;
   bottom: 20px;
-  right: 20px;
+  right: 16px;
   z-index: 1000;
   background: var(--panel-bg);
   border: 1px solid var(--panel-border);

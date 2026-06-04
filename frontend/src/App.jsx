@@ -1,8 +1,8 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { MapContainer, TileLayer, useMap } from 'react-leaflet'
 import L from 'leaflet'
-import { Modal, ActionIcon, Text, Button, Group, useMantineColorScheme } from '@mantine/core'
-import { IconSun, IconMoon } from '@tabler/icons-react'
+import { Modal, ActionIcon, Text, Button, Group, useMantineColorScheme, TextInput, PasswordInput } from '@mantine/core'
+import { IconSun, IconMoon, IconSatellite } from '@tabler/icons-react'
 import { MODEL_STYLES } from './constants'
 import { useLang } from './LanguageContext'
 import Panel from './components/Panel'
@@ -615,6 +615,15 @@ function getActivePmarData(data, indicator) {
   }
 }
 
+// ── CMEMS credentials — read once at module load, immune to remounting ────────
+let _storedCreds = (() => {
+  try {
+    const raw = sessionStorage.getItem('cmems_creds')
+    return raw ? JSON.parse(raw) : null
+  } catch { return null }
+})()
+let _shouldShowCmemsModal = !_storedCreds
+
 // ── App ───────────────────────────────────────────────────────────────────────
 export default function App() {
   const { t, lang, toggle } = useLang()
@@ -622,6 +631,31 @@ export default function App() {
 
   const [activeTool, setActiveTool] = useState('opendrift')
   const [mapTheme,   setMapTheme]   = useState('light')
+
+  const [cmemsCredentials, setCmemsCredentials] = useState(_storedCreds)
+  const [showCmemsModal,   setShowCmemsModal]   = useState(_shouldShowCmemsModal)
+  const [cmemsUser,        setCmemsUser]        = useState(_storedCreds?.username ?? '')
+  const [cmemsPass,        setCmemsPass]        = useState(_storedCreds?.password ?? '')
+  const [cmemsError,       setCmemsError]       = useState('')
+
+  function handleSaveCmems() {
+    const u = cmemsUser.trim()
+    const p = cmemsPass.trim()
+    if (!u || !p) { setCmemsError(t.cmems.errorEmpty); return }
+    const creds = { username: u, password: p }
+    try { sessionStorage.setItem('cmems_creds', JSON.stringify(creds)) } catch { /* ignore */ }
+    _storedCreds = creds
+    _shouldShowCmemsModal = false
+    setCmemsCredentials(creds)
+    setShowCmemsModal(false)
+    setCmemsError('')
+  }
+
+  function handleSkipCmems() {
+    _shouldShowCmemsModal = false
+    setShowCmemsModal(false)
+    setCmemsError('')
+  }
 
   const [drawMode,      setDrawMode]      = useState(null)
   const [seedShape,     setSeedShape]     = useState(null)
@@ -800,10 +834,13 @@ export default function App() {
     setCurrentStep(0)
 
     try {
+      const cmemsInputs = cmemsCredentials
+        ? { cmems_username: cmemsCredentials.username, cmems_password: cmemsCredentials.password }
+        : {}
       const resp = await fetch('/processes/opendrift/execution', {
         method:  'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ inputs: { model, start_time, number, duration_hours, ...seedParams } }),
+        headers: { 'Content-Type': 'application/json', 'Prefer': 'respond-async' },
+        body:    JSON.stringify({ inputs: { model, start_time, number, duration_hours, ...seedParams, ...cmemsInputs } }),
       })
 
       if (!resp.ok) {
@@ -816,8 +853,29 @@ export default function App() {
         throw new Error(message)
       }
 
-      const raw  = await resp.json()
-      const data = (raw.steps && raw.times) ? raw : (raw.trajectory ?? raw)
+      const { jobID } = await resp.json()
+
+      const jsonHeaders = { 'Accept': 'application/json' }
+
+      await new Promise((resolve, reject) => {
+        const iv = setInterval(async () => {
+          try {
+            const jobResp = await fetch(`/jobs/${jobID}`, { headers: jsonHeaders })
+            const job     = await jobResp.json()
+            if (job.status === 'successful') {
+              clearInterval(iv)
+              resolve()
+            } else if (job.status === 'failed') {
+              clearInterval(iv)
+              reject(new Error(job.message || t.status.badResponse))
+            }
+          } catch (e) { clearInterval(iv); reject(e) }
+        }, 3000)
+      })
+
+      const resResp = await fetch(`/jobs/${jobID}/results`, { headers: jsonHeaders })
+      const raw     = await resResp.json()
+      const data    = (raw.steps && raw.times) ? raw : (raw.trajectory ?? raw)
       if (!data.steps || !data.times) throw new Error(t.status.badResponse)
 
       const nParticles = data.steps[0].filter(Boolean).length
@@ -872,6 +930,10 @@ export default function App() {
 
     try {
 
+      if (cmemsCredentials) {
+        inputs.cmems_username = cmemsCredentials.username
+        inputs.cmems_password = cmemsCredentials.password
+      }
       const resp = await fetch('/processes/pmar/execution', {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -1103,40 +1165,52 @@ export default function App() {
         <MapRefSetter mapRef={mapRef} />
       </MapContainer>
 
-      <ActionIcon
-        style={{
-          position: 'absolute', top: 16, right: 16, zIndex: 1000,
-          background: 'var(--panel-bg)',
-          border: '1px solid var(--panel-border)',
-          backdropFilter: 'blur(20px) saturate(180%)',
-        }}
-        size={36}
-        radius="md"
-        variant="default"
-        title={mapTheme === 'dark' ? 'Switch to light map' : 'Switch to dark map'}
-        onClick={() => {
-          const next = mapTheme === 'dark' ? 'light' : 'dark'
-          setMapTheme(next)
-          setColorScheme(next)
-        }}
-      >
-        {mapTheme === 'dark' ? <IconSun size={18} /> : <IconMoon size={18} />}
-      </ActionIcon>
-      <ActionIcon
-        style={{
-          position: 'absolute', top: 60, right: 16, zIndex: 1000,
-          background: 'var(--panel-bg)',
-          border: '1px solid var(--panel-border)',
-          backdropFilter: 'blur(20px) saturate(180%)',
-        }}
-        size={36}
-        radius="md"
-        variant="default"
-        title="Switch language"
-        onClick={toggle}
-      >
-        <Text size="xs" fw={700} c="dimmed">{lang === 'it' ? 'EN' : 'IT'}</Text>
-      </ActionIcon>
+      <div style={{
+        position: 'absolute', top: 16, right: 16, zIndex: 1000,
+        display: 'flex', flexDirection: 'row', alignItems: 'center', gap: 2,
+        background: 'var(--panel-bg)',
+        border: '1px solid var(--panel-border)',
+        backdropFilter: 'blur(20px) saturate(180%)',
+        WebkitBackdropFilter: 'blur(20px) saturate(180%)',
+        borderRadius: 10,
+        padding: 4,
+        boxShadow: '0 2px 16px rgba(0,0,0,0.12)',
+      }}>
+        <ActionIcon
+          size={36} radius="md" variant="subtle"
+          title={mapTheme === 'dark' ? 'Switch to light map' : 'Switch to dark map'}
+          onClick={() => { const next = mapTheme === 'dark' ? 'light' : 'dark'; setMapTheme(next); setColorScheme(next) }}
+        >
+          {mapTheme === 'dark' ? <IconSun size={17} /> : <IconMoon size={17} />}
+        </ActionIcon>
+        <div style={{ width: 1, height: 20, background: 'var(--panel-border)', flexShrink: 0 }} />
+        <ActionIcon
+          size={36} radius="md" variant="subtle"
+          title="Switch language"
+          onClick={toggle}
+        >
+          <Text size="xs" fw={700} c="dimmed">{lang === 'it' ? 'EN' : 'IT'}</Text>
+        </ActionIcon>
+        <div style={{ width: 1, height: 20, background: 'var(--panel-border)', flexShrink: 0 }} />
+        <Button
+          size="xs" radius="md" variant="subtle"
+          title={t.cmems.btnTooltip}
+          leftSection={<IconSatellite size={15} />}
+          onClick={() => { setCmemsUser(cmemsCredentials?.username ?? ''); setCmemsPass(cmemsCredentials?.password ?? ''); setCmemsError(''); setShowCmemsModal(true) }}
+          style={{ position: 'relative', height: 36, paddingInline: 10 }}
+        >
+          {t.cmems.btnLabel}
+          {!cmemsCredentials && (
+            <span style={{
+              position: 'absolute', top: 6, right: 6,
+              width: 7, height: 7,
+              borderRadius: '50%',
+              background: '#ef4444',
+              border: '1.5px solid var(--panel-bg)',
+            }} />
+          )}
+        </Button>
+      </div>
 
       <Panel
         onRun={handleRun}
@@ -1286,10 +1360,49 @@ export default function App() {
       />
 
       <Modal
+        opened={showCmemsModal}
+        onClose={handleSkipCmems}
+        closeOnClickOutside={false}
+        centered
+        size="sm"
+        zIndex={200000}
+        title={<Text fw={600} size="sm">{t.cmems.modalTitle}</Text>}
+        styles={{
+          content: { background: 'var(--modal-bg)', border: '1px solid var(--modal-border)' },
+          header:  { background: 'var(--modal-bg)' },
+        }}
+      >
+        <Text size="xs" c="dimmed" mb="md" style={{ lineHeight: 1.5 }}>{t.cmems.modalDesc}</Text>
+        <TextInput
+          label={t.cmems.labelUser}
+          value={cmemsUser}
+          onChange={e => setCmemsUser(e.currentTarget.value)}
+          mb="sm"
+          size="sm"
+          autoComplete="username"
+        />
+        <PasswordInput
+          label={t.cmems.labelPass}
+          value={cmemsPass}
+          onChange={e => setCmemsPass(e.currentTarget.value)}
+          mb="sm"
+          size="sm"
+          autoComplete="current-password"
+          onKeyDown={e => { if (e.key === 'Enter') handleSaveCmems() }}
+        />
+        {cmemsError && <Text size="xs" c="red" mb="sm">{cmemsError}</Text>}
+        <Group justify="flex-end" gap="xs" mt="md">
+          <Button size="sm" variant="subtle" color="gray" onClick={handleSkipCmems}>{t.cmems.btnSkip}</Button>
+          <Button size="sm" color="blue" onClick={handleSaveCmems}>{t.cmems.btnSave}</Button>
+        </Group>
+      </Modal>
+
+      <Modal
         opened={!!pmarErrorMsg}
         onClose={() => setPmarErrorMsg(null)}
         centered
         size="sm"
+        zIndex={200000}
         title={<Text fw={600} size="sm">Errore</Text>}
         styles={{
           content: { background: 'var(--modal-bg)', border: '1px solid var(--modal-border)' },

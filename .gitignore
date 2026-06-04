@@ -1,8 +1,9 @@
 # Claude
 .claude/
 
-# Python
+# Python — escludi tutto il venv tranne il sorgente pygeoapi (serve per la Docker build)
 venv/
+!venv/pygeoapi/
 __pycache__/
 *.py[cod]
 *.pyo
@@ -13,8 +14,6 @@ __pycache__/
 out/
 cache/
 scenarios/
-
-# Log
 logs/
 
 # pygeoapi generato
@@ -28,5 +27,7 @@ frontend/.vite/
 # macOS
 .DS_Store
 
-# Template esterni (clonati, non nostri)
 tmp/
+
+# Token privati
+.git_token

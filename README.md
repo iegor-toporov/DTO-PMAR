@@ -15,9 +15,21 @@ demo_5/
 │   ├── ScenarioStatusProcess.py         # OGC API process: lists saved scenarios + Tools4MSP areas
 │   ├── WindfarmsProcess.py              # OGC API process: EMODnet wind farm preview (bbox query)
 │   ├── OffshoreInstallationsProcess.py  # OGC API process: EMODnet offshore installations preview
+│   ├── Natura2000Process.py             # OGC API process: Natura 2000 protected areas (EmodNet)
 │   └── logging_utils.py                 # Shared log handler with line-count rotation
+├── worker/
+│   ├── app.py                           # Celery application instance
+│   ├── manager.py                       # Job lifecycle helpers
+│   └── tasks.py                         # Celery tasks (async precompute)
 ├── frontend/
-│   └── src/                             # React + Vite SPA
+│   ├── src/                             # React 19 + Vite SPA (Mantine v9, react-leaflet)
+│   ├── Dockerfile                       # Multi-stage build → nginx
+│   ├── nginx.conf                       # Static serving + API proxy
+│   └── nginx.conf.template              # Template for environment-variable substitution
+├── scripts/
+│   ├── start.sh                         # Dev: regenerate OpenAPI spec and start pygeoapi
+│   ├── entrypoint.sh                    # Docker entrypoint for backend container
+│   └── init-letsencrypt.sh              # Let's Encrypt certificate bootstrap helper
 ├── cache/
 │   ├── cmems_*_cur_*.nc                 # Ocean currents
 │   ├── cmems_*_wind_*.nc                # Wind
@@ -30,9 +42,9 @@ demo_5/
 │   ├── custom_<id>.json                 # Scenario metadata (params, shapefile path, label)
 │   └── shapefiles/
 │       ├── custom_<id>.shp              # Seeding area shapefiles for custom scenarios
-│       └── t4msp_<area_id>.shp         # Cached Tools4MSP area geometries
+│       └── t4msp_<area_id>.shp          # Cached Tools4MSP area geometries
 ├── out/                                 # Temporary simulation outputs (cleaned on startup)
-├── logs/
+├── logs/                                # Runtime logs — not committed to git
 │   ├── pygeoapi/pygeoapi.log
 │   ├── opendrift/opendrift.log
 │   ├── pmar/pmar.log
@@ -40,37 +52,56 @@ demo_5/
 │   ├── pmar/scenario_status.log
 │   ├── windfarms/windfarms.log
 │   └── offshore_installations/
+├── Dockerfile                           # Backend image (pygeoapi + processes)
+├── docker-compose.yml                   # Orchestrates backend, celery-worker, redis, frontend
 ├── pygeoapi-config.yml
-└── start.sh
+└── .env                                 # Runtime secrets (not committed)
 ```
 
-**Backend:** [pygeoapi](https://pygeoapi.io) (port 5001) exposes all processes via the OGC API - Processes standard.
+**Backend:** [pygeoapi](https://pygeoapi.io) (port 5001) exposes all processes via the OGC API - Processes standard. Long-running precomputations are offloaded to a **Celery** worker backed by **Redis**.
 
-**Frontend:** React 18 + Vite SPA with react-leaflet. Served statically; communicates with the backend via `POST /processes/<process>/execution`.
+**Frontend:** React 19 + Vite SPA with Mantine v9 and react-leaflet. In production it is built into a static bundle and served by **nginx**, which also proxies `/processes/*` to the backend. Communicates with the backend via `POST /processes/<process>/execution`.
 
 ---
 
 ## Requirements
 
+### Production (Docker)
+
+- Docker and Docker Compose
+- A `.env` file with runtime secrets (see below)
+- A `.git_token` file containing a GitHub personal access token with read access to the private PMAR repo (used only at image build time)
+- A free [Copernicus Marine](https://marine.copernicus.eu/) account
+
+### Development
+
 - Python 3.12 with a virtual environment (`venv/`)
 - pygeoapi (installed from source in `venv/pygeoapi/`)
 - OpenDrift and its dependencies
-- PMAR library — install from private repo: `pip install git+https://<token>@github.com/sofbo/pmar.git`
-- `copernicusmarine` Python client (requires a free Copernicus Marine account)
-- `rasterio` (for GeoTIFF export)
-- `networkx` — required by the PMAR library
-- `cartopy` — required by `pmar.utils.make_grid`
-- Node.js ≥ 18 (for frontend development only)
+- PMAR library — `pip install git+https://<token>@github.com/sofbo/pmar.git`
+- `copernicusmarine` Python client
+- `rasterio`, `networkx`, `cartopy`, `celery`, `redis`
+- Node.js ≥ 18 (frontend only)
 
 ---
 
 ## Getting started
 
-### Backend
+### Production — Docker Compose
+
+```bash
+# 1. Create a .env file with required variables (Redis URL, etc.)
+# 2. Place your GitHub token in .git_token (read access to the PMAR repo)
+docker compose up --build -d
+```
+
+The frontend is served at `http://localhost:80`. The backend runs on port 5001 (internal only). The Celery worker and Redis are started automatically.
+
+### Backend (development)
 
 ```bash
 source venv/bin/activate
-./start.sh
+./scripts/start.sh
 ```
 
 `start.sh` removes leftover temporary NetCDF files from `out/`, regenerates the OpenAPI spec from `pygeoapi-config.yml`, and starts the server on port 5001.
@@ -84,15 +115,6 @@ npm run dev
 ```
 
 Vite proxies API requests to `http://localhost:5001` automatically.
-
-### Frontend (production build)
-
-```bash
-cd frontend
-npm run build
-```
-
-The built files go to `frontend/dist/` and are served as static assets by pygeoapi.
 
 ---
 
@@ -445,8 +467,9 @@ Wind and waves downloads are non-blocking: if the dataset is unavailable the sim
 
 ### Map
 
-- **Light / dark theme toggle** (top-right corner): switches between CartoDB Light and Dark basemaps; the panel and controls bar follow the same theme
-- **IT / EN language switch** (top-right, below theme toggle)
+- **Top-right toolbar**: contains three buttons — light/dark theme toggle (switches CartoDB basemap and all panel colours), IT/EN language switch, and **Login to Copernicus** (opens a modal to enter Copernicus Marine credentials; a red dot indicates no credentials are set). Credentials are kept in `sessionStorage` for the duration of the browser tab and are sent to the backend with each simulation request.
+- **Natura 2000 layer**: protected marine areas fetched from the EmodNet WFS and displayed as a semi-transparent overlay. Toggled from the PMAR controls bar.
+- **Analysis tools panel** (right side, vertically centred): six labelled buttons — Histogram, Statistics, Profile, Threshold, CSV, Compare — active only when a PMAR raster is loaded. A "Close all" button appears when analysis windows are open.
 
 ---
 

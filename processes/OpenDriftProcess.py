@@ -100,7 +100,7 @@ PROCESS_METADATA = {
     'id': 'opendrift',
     'title': {'en': 'OpenDrift Simulation'},
     'description': {'en': 'Lagrangian particle tracking with real CMEMS ocean currents.'},
-    'jobControlOptions': ['sync-execute', 'async-execute'],
+    'jobControlOptions': ['async-execute'],
     'keywords': ['opendrift', 'drift', 'particles', 'ocean', 'cmems'],
     'inputs': {
         'seeding_type': {
@@ -166,6 +166,16 @@ PROCESS_METADATA = {
             'schema': {'type': 'number', 'default': 24},
             'minOccurs': 0, 'maxOccurs': 1,
         },
+        'cmems_username': {
+            'title': 'Copernicus Marine username',
+            'schema': {'type': 'string'},
+            'minOccurs': 0, 'maxOccurs': 1,
+        },
+        'cmems_password': {
+            'title': 'Copernicus Marine password',
+            'schema': {'type': 'string'},
+            'minOccurs': 0, 'maxOccurs': 1,
+        },
     },
     'outputs': {
         'trajectory': {
@@ -186,6 +196,12 @@ class OpenDriftProcessor(BaseProcessor):
         model_name     = data.get('model', 'OceanDrift')
         number         = min(int(data.get('number', 100)), 10000)
         duration_hours = float(data.get('duration_hours', 24))
+
+        cmems_creds = None
+        u = (data.get('cmems_username') or '').strip()
+        p = (data.get('cmems_password') or '').strip()
+        if u and p:
+            cmems_creds = {'username': u, 'password': p}
 
         if model_name not in AVAILABLE_MODELS:
             raise ProcessorExecuteError(
@@ -242,25 +258,25 @@ class OpenDriftProcessor(BaseProcessor):
 
         max_depth = model_meta.get('max_depth', 0.5)
         if model_meta.get('needs_vertical'):
-            dynamic = _get_max_depth_for_area(lon_min, lon_max, lat_min, lat_max)
+            dynamic = _get_max_depth_for_area(lon_min, lon_max, lat_min, lat_max, cmems_creds=cmems_creds)
             if dynamic is not None:
                 max_depth = dynamic
                 logger.info(f'Profondità dinamica per {model_name}: {max_depth:.0f} m')
             else:
                 logger.warning(f'Batimetria non disponibile per {model_name}, uso default {max_depth:.0f} m')
-        forcing_paths = [_get_forcing_file(lon_min, lon_max, lat_min, lat_max, start_time, end_time, max_depth=max_depth)]
+        forcing_paths = [_get_forcing_file(lon_min, lon_max, lat_min, lat_max, start_time, end_time, max_depth=max_depth, cmems_creds=cmems_creds)]
         if model_meta['needs_wind']:
-            wind_path = _get_wind_file(lon_min, lon_max, lat_min, lat_max, start_time, end_time)
+            wind_path = _get_wind_file(lon_min, lon_max, lat_min, lat_max, start_time, end_time, cmems_creds=cmems_creds)
             if wind_path:
                 forcing_paths.append(wind_path)
         if model_meta.get('needs_waves'):
-            waves_path = _get_waves_file(lon_min, lon_max, lat_min, lat_max, start_time, end_time)
+            waves_path = _get_waves_file(lon_min, lon_max, lat_min, lat_max, start_time, end_time, cmems_creds=cmems_creds)
             if waves_path:
                 forcing_paths.append(waves_path)
             else:
                 logger.warning(f'Onde non disponibili per {model_name}: deriva di Stokes parametrizzata dal vento')
         if model_meta.get('needs_thermo'):
-            thermo_path = _get_thermo_file(lon_min, lon_max, lat_min, lat_max, start_time, end_time)
+            thermo_path = _get_thermo_file(lon_min, lon_max, lat_min, lat_max, start_time, end_time, cmems_creds=cmems_creds)
             if thermo_path:
                 forcing_paths.append(thermo_path)
             else:
@@ -345,6 +361,18 @@ def _build_model(model_name, model_meta):
     return o
 
 
+# ── CMEMS auth helper ────────────────────────────────────────────────────────
+
+def _cmems_auth(creds):
+    if not creds:
+        return {}
+    u = creds.get('username', '')
+    p = creds.get('password', '')
+    if u and p:
+        return {'username': u, 'password': p}
+    return {}
+
+
 # ── Cache helpers — correnti ─────────────────────────────────────────────────
 
 def _cache_key(lon_min, lon_max, lat_min, lat_max, start_time, end_time, suffix='cur', max_depth=0.5, margin=5.0):
@@ -371,7 +399,7 @@ def _cache_key(lon_min, lon_max, lat_min, lat_max, start_time, end_time, suffix=
     )
 
 
-def _get_forcing_file(lon_min, lon_max, lat_min, lat_max, start_time, end_time, time_step_hours=1, max_depth=0.5, margin=5.0):
+def _get_forcing_file(lon_min, lon_max, lat_min, lat_max, start_time, end_time, time_step_hours=1, max_depth=0.5, margin=5.0, cmems_creds=None):
     suffix = 'cur_d' if time_step_hours >= 24 else 'cur'
     cache_path, slon_min, slon_max, slat_min, slat_max, snap_start, n_days = _cache_key(
         lon_min, lon_max, lat_min, lat_max, start_time, end_time, suffix=suffix, max_depth=max_depth, margin=margin
@@ -385,11 +413,11 @@ def _get_forcing_file(lon_min, lon_max, lat_min, lat_max, start_time, end_time, 
             f'max_depth={max_depth:.0f}m, margin={margin}°, '
             f'bbox=[{lon_min:.1f},{lat_min:.1f}→{lon_max:.1f},{lat_max:.1f}])'
         )
-        _download_currents(slon_min, slon_max, slat_min, slat_max, snap_start, n_days, cache_path, time_step_hours, max_depth, margin)
+        _download_currents(slon_min, slon_max, slat_min, slat_max, snap_start, n_days, cache_path, time_step_hours, max_depth, margin, cmems_creds)
     return cache_path
 
 
-def _get_wind_file(lon_min, lon_max, lat_min, lat_max, start_time, end_time, margin=5.0):
+def _get_wind_file(lon_min, lon_max, lat_min, lat_max, start_time, end_time, margin=5.0, cmems_creds=None):
     cache_path, slon_min, slon_max, slat_min, slat_max, snap_start, n_days = _cache_key(
         lon_min, lon_max, lat_min, lat_max, start_time, end_time, suffix='wind', margin=margin
     )
@@ -398,7 +426,7 @@ def _get_wind_file(lon_min, lon_max, lat_min, lat_max, start_time, end_time, mar
         return cache_path
     logger.info(f'Cache vento: MISS — avvio download ({n_days} giorni, margin={margin}°)')
     try:
-        _download_wind(slon_min, slon_max, slat_min, slat_max, snap_start, n_days, cache_path, margin)
+        _download_wind(slon_min, slon_max, slat_min, slat_max, snap_start, n_days, cache_path, margin, cmems_creds)
         return cache_path
     except Exception as e:
         logger.warning(f'Download vento fallito (non bloccante): {e}')
@@ -418,7 +446,7 @@ def _build_bbox(slon_min, slon_max, slat_min, slat_max, snap_start, n_days, max_
         end_datetime      = snap_end.strftime('%Y-%m-%dT%H:%M:%S'),
     )
 
-def _download_currents(slon_min, slon_max, slat_min, slat_max, snap_start, n_days, cache_path, time_step_hours=1, max_depth=0.5, margin=5.0):
+def _download_currents(slon_min, slon_max, slat_min, slat_max, snap_start, n_days, cache_path, time_step_hours=1, max_depth=0.5, margin=5.0, cmems_creds=None):
     import copernicusmarine
     datasets = CMEMS_CURRENT_DATASETS_DAILY if time_step_hours >= 24 else CMEMS_CURRENT_DATASETS_HOURLY
     freq_label = 'giornaliero' if time_step_hours >= 24 else 'orario'
@@ -434,6 +462,7 @@ def _download_currents(slon_min, slon_max, slat_min, slat_max, snap_start, n_day
                 output_directory = CACHE_DIR,
                 overwrite        = True,
                 **bbox,
+                **_cmems_auth(cmems_creds),
             )
             logger.info(f"Dataset correnti scaricato: {ds['dataset_id']}")
             return
@@ -444,7 +473,7 @@ def _download_currents(slon_min, slon_max, slat_min, slat_max, snap_start, n_day
     raise ProcessorExecuteError(f'CMEMS currents download failed: {last_err}')
 
 
-def _download_wind(slon_min, slon_max, slat_min, slat_max, snap_start, n_days, cache_path, margin=5.0):
+def _download_wind(slon_min, slon_max, slat_min, slat_max, snap_start, n_days, cache_path, margin=5.0, cmems_creds=None):
     import copernicusmarine
     logger.info(f'Download vento CMEMS (margin={margin}°) — {snap_start.date()} +{n_days}d → {os.path.basename(cache_path)}')
     bbox = _build_bbox(slon_min, slon_max, slat_min, slat_max, snap_start, n_days, margin=margin)
@@ -468,6 +497,7 @@ def _download_wind(slon_min, slon_max, slat_min, slat_max, snap_start, n_days, c
                 output_directory = CACHE_DIR,
                 overwrite        = True,
                 **bbox,
+                **_cmems_auth(cmems_creds),
             )
             logger.info(f"Dataset vento scaricato: {ds['dataset_id']}")
             return
@@ -478,7 +508,7 @@ def _download_wind(slon_min, slon_max, slat_min, slat_max, snap_start, n_days, c
 
 # ── Cache helpers — onde (Stokes drift) ─────────────────────────────────────
 
-def _get_waves_file(lon_min, lon_max, lat_min, lat_max, start_time, end_time, margin=5.0):
+def _get_waves_file(lon_min, lon_max, lat_min, lat_max, start_time, end_time, margin=5.0, cmems_creds=None):
     cache_path, slon_min, slon_max, slat_min, slat_max, snap_start, n_days = _cache_key(
         lon_min, lon_max, lat_min, lat_max, start_time, end_time, suffix='wav', margin=margin
     )
@@ -487,14 +517,14 @@ def _get_waves_file(lon_min, lon_max, lat_min, lat_max, start_time, end_time, ma
         return cache_path
     logger.info(f'Cache onde: MISS — avvio download ({n_days} giorni, margin={margin}°)')
     try:
-        _download_waves(slon_min, slon_max, slat_min, slat_max, snap_start, n_days, cache_path, margin)
+        _download_waves(slon_min, slon_max, slat_min, slat_max, snap_start, n_days, cache_path, margin, cmems_creds)
         return cache_path
     except Exception as e:
         logger.warning(f'Download onde fallito (non bloccante): {e}')
         return None
 
 
-def _download_waves(slon_min, slon_max, slat_min, slat_max, snap_start, n_days, cache_path, margin=5.0):
+def _download_waves(slon_min, slon_max, slat_min, slat_max, snap_start, n_days, cache_path, margin=5.0, cmems_creds=None):
     import copernicusmarine
     logger.info(f'Download onde CMEMS (vsdx/vsdy, margin={margin}°) — {snap_start.date()} +{n_days}d → {os.path.basename(cache_path)}')
     bbox = _build_bbox(slon_min, slon_max, slat_min, slat_max, snap_start, n_days, max_depth=0.5, margin=margin)
@@ -510,6 +540,7 @@ def _download_waves(slon_min, slon_max, slat_min, slat_max, snap_start, n_days, 
                 output_directory = CACHE_DIR,
                 overwrite        = True,
                 **bbox,
+                **_cmems_auth(cmems_creds),
             )
             logger.info(f"Dataset onde scaricato: {ds['dataset_id']}")
             return
@@ -521,7 +552,7 @@ def _download_waves(slon_min, slon_max, slat_min, slat_max, snap_start, n_days, 
 
 # ── Cache helpers — temperatura e salinità (OpenOil weathering) ─────────────
 
-def _get_thermo_file(lon_min, lon_max, lat_min, lat_max, start_time, end_time, margin=5.0):
+def _get_thermo_file(lon_min, lon_max, lat_min, lat_max, start_time, end_time, margin=5.0, cmems_creds=None):
     cache_path, slon_min, slon_max, slat_min, slat_max, snap_start, n_days = _cache_key(
         lon_min, lon_max, lat_min, lat_max, start_time, end_time, suffix='tem', margin=margin
     )
@@ -530,14 +561,14 @@ def _get_thermo_file(lon_min, lon_max, lat_min, lat_max, start_time, end_time, m
         return cache_path
     logger.info(f'Cache T/S: MISS — avvio download ({n_days} giorni, margin={margin}°)')
     try:
-        _download_thermo(slon_min, slon_max, slat_min, slat_max, snap_start, n_days, cache_path, margin)
+        _download_thermo(slon_min, slon_max, slat_min, slat_max, snap_start, n_days, cache_path, margin, cmems_creds)
         return cache_path
     except Exception as e:
         logger.warning(f'Download T/S fallito (non bloccante): {e}')
         return None
 
 
-def _download_thermo(slon_min, slon_max, slat_min, slat_max, snap_start, n_days, cache_path, margin=5.0):
+def _download_thermo(slon_min, slon_max, slat_min, slat_max, snap_start, n_days, cache_path, margin=5.0, cmems_creds=None):
     """Scarica temperatura (thetao) e salinità (so) superficiali per il weathering di OpenOil.
 
     Prova prima dataset con entrambe le variabili; se fallisce, tenta temperature-only.
@@ -556,6 +587,7 @@ def _download_thermo(slon_min, slon_max, slat_min, slat_max, snap_start, n_days,
                 output_directory = CACHE_DIR,
                 overwrite        = True,
                 **bbox,
+                **_cmems_auth(cmems_creds),
             )
             logger.info(f"Dataset T/S scaricato: {ds['dataset_id']} — variabili: {ds['variables']}")
             return
@@ -567,7 +599,7 @@ def _download_thermo(slon_min, slon_max, slat_min, slat_max, snap_start, n_days,
 
 # ── Cache helpers — batimetria statica (profondità massima area) ─────────────
 
-def _get_max_depth_for_area(lon_min, lon_max, lat_min, lat_max, margin=5.0):
+def _get_max_depth_for_area(lon_min, lon_max, lat_min, lat_max, margin=5.0, cmems_creds=None):
     """Ritorna la profondità massima del fondale (m) + 10 m buffer per l'area indicata.
 
     Usa un file NC statico in cache (chiave solo geografica, nessun campo temporale).
@@ -589,7 +621,7 @@ def _get_max_depth_for_area(lon_min, lon_max, lat_min, lat_max, margin=5.0):
     else:
         logger.info(f'Cache batimetria: MISS — avvio download (margin={margin}°, bbox=[{slon_min},{slat_min}→{slon_max},{slat_max}])')
         try:
-            _download_bathymetry(slon_min, slon_max, slat_min, slat_max, cache_path, margin)
+            _download_bathymetry(slon_min, slon_max, slat_min, slat_max, cache_path, margin, cmems_creds)
         except Exception as e:
             logger.warning(f'Download batimetria fallito (non bloccante): {e}')
             return None
@@ -607,7 +639,7 @@ def _get_max_depth_for_area(lon_min, lon_max, lat_min, lat_max, margin=5.0):
         return None
 
 
-def _download_bathymetry(slon_min, slon_max, slat_min, slat_max, cache_path, margin=5.0):
+def _download_bathymetry(slon_min, slon_max, slat_min, slat_max, cache_path, margin=5.0, cmems_creds=None):
     import copernicusmarine
     logger.info(f'Download batimetria CMEMS (deptho, margin={margin}°) → {os.path.basename(cache_path)}')
     geo_bbox = dict(
@@ -626,6 +658,7 @@ def _download_bathymetry(slon_min, slon_max, slat_min, slat_max, cache_path, mar
                 output_directory = CACHE_DIR,
                 overwrite        = True,
                 **geo_bbox,
+                **_cmems_auth(cmems_creds),
             )
             logger.info(f"Dataset batimetria scaricato: {ds['dataset_id']}")
             return
