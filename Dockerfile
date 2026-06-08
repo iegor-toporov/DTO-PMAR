@@ -25,12 +25,8 @@ WORKDIR /app
 
 # Install Python dependencies before copying full source (layer cache)
 COPY requirements.txt ./
-RUN pip install --no-cache-dir -r requirements.txt \
-    && pip install --no-cache-dir gevent gunicorn
-
-# Install pygeoapi from local source (pinned dev version not on PyPI)
-COPY venv/pygeoapi/ ./venv/pygeoapi/
-RUN pip install --no-cache-dir ./venv/pygeoapi/
+RUN pip install --no-cache-dir --timeout 300 -r requirements.txt \
+    && pip install --no-cache-dir --timeout 300 gevent gunicorn
 
 # Install private PMAR package (token injected at build time, never stored in image)
 RUN --mount=type=secret,id=git_token \
@@ -44,6 +40,7 @@ RUN --mount=type=secret,id=git_token \
 COPY processes/ ./processes/
 COPY pygeoapi-config.yml ./
 COPY scripts/entrypoint.sh ./scripts/entrypoint.sh
+RUN sed -i 's/\r$//' /app/scripts/entrypoint.sh && chmod +x /app/scripts/entrypoint.sh
 COPY worker/ ./worker/
 
 RUN chown -R appuser:appuser /app
