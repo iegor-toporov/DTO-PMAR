@@ -44,14 +44,6 @@ DTO-PMAR/
 │       ├── custom_<id>.shp              # Seeding area shapefiles for custom scenarios
 │       └── t4msp_<area_id>.shp          # Cached Tools4MSP area geometries
 ├── out/                                 # Temporary simulation outputs (cleaned on startup)
-├── logs/                                # Runtime logs — not committed to git
-│   ├── pygeoapi/pygeoapi.log
-│   ├── opendrift/opendrift.log
-│   ├── pmar/pmar.log
-│   ├── pmar/precompute_process.log
-│   ├── pmar/scenario_status.log
-│   ├── windfarms/windfarms.log
-│   └── offshore_installations/
 ├── Dockerfile                           # Backend image (pygeoapi + processes)
 ├── docker-compose.yml                   # Orchestrates backend, celery-worker, redis, frontend
 ├── pygeoapi-config.yml
@@ -479,18 +471,6 @@ Wind and waves downloads are non-blocking: if the dataset is unavailable the sim
 
 ![PMAR analysis - particle density heatmap using larvae model. Res 0.01º.](images/example_analysis_2.png)
 
----
-
 ## Logging
 
-Each process writes to its own subdirectory under `logs/`. All loggers use `LineRotatingFileHandler` (`processes/logging_utils.py`): the log file is truncated when it exceeds 1000 lines.
-
-| File | Content |
-|---|---|
-| `logs/pygeoapi/pygeoapi.log` | pygeoapi server logs (WARNING level) |
-| `logs/opendrift/opendrift.log` | OpenDrift simulation logs |
-| `logs/pmar/pmar.log` | PMAR analysis logs |
-| `logs/pmar/precompute_process.log` | Precomputation logs (progress every 60 s) |
-| `logs/pmar/scenario_status.log` | Scenario status query logs |
-| `logs/windfarms/windfarms.log` | Wind farms WFS logs |
-| `logs/offshore_installations/offshore_installations.log` | Offshore installations WFS logs |
+All processes write to **stdout**, which Docker captures via `docker logs`. Use `docker logs dto-pmar-backend-1` (or `dto-pmar-celery-worker-1`) to stream logs in real time.

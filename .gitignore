@@ -1,20 +1,21 @@
 # Claude
 .claude/
 
-# Python — escludi tutto il venv tranne il sorgente pygeoapi (serve per la Docker build)
+# Python
 venv/
-!venv/pygeoapi/
 __pycache__/
 *.py[cod]
 *.pyo
 .env
 .env.*
 
-# Dati e output simulazioni
-out/
-cache/
-scenarios/
-logs/
+# Dati e output simulazioni — le directory sono tracciate via .gitkeep
+out/*
+!out/.gitkeep
+cache/*
+!cache/.gitkeep
+scenarios/*
+!scenarios/.gitkeep
 
 # pygeoapi generato
 pygeoapi-openapi.yml
