@@ -25,6 +25,14 @@ WORKDIR /app
 
 # Install Python dependencies before copying full source (layer cache)
 COPY requirements.txt ./
+
+# roaring-landmask (OpenDrift dep) downloads ~40MB from GitHub at build time via reqwest.
+# Pre-download with curl (better retry control) so the Rust build script finds it locally.
+RUN curl -L --retry 5 --retry-delay 10 --max-time 300 \
+    "https://github.com/gauteh/roaring-landmask/raw/main/assets/gshhg.wkb.xz" \
+    -o /tmp/gshhg.wkb.xz
+RUN GSHHG=/tmp/gshhg.wkb.xz pip install --no-cache-dir --timeout 300 roaring-landmask
+
 RUN pip install --no-cache-dir --timeout 300 -r requirements.txt \
     && pip install --no-cache-dir --timeout 300 gevent gunicorn
 
