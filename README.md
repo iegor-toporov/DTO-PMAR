@@ -1,14 +1,8 @@
-# DTO-PMAR
+# Tools4MSP-PMAR
 
-A lightweight web application for Lagrangian particle tracking in the ocean. It combines an OGC API Processing backend with an interactive map frontend to simulate how substances and organisms disperse under real ocean currents, and to compute particle density maps with the PMAR engine.
+A DTO web application for on-demand anthropogenic pressure modelling and assessment based on the [PMAR](https://github.com/CNR-ISMAR/pmar.git) package. It combines an OGC API Processing backend with an interactive map frontend to simulate how substances and organisms disperse under real ocean data, and to compute particle density maps with the PMAR engine. It dinamically connects to Copernicus Marine for ocean models and EMODnet for human activities data. 
 
 ## GUI Preview
-
-![OpenDrift example usage. Parameters on the left side.](images/OpenDrift_demo_1.png)
-
-<p align="center">OpenDrift example usage. Parameters on the left side.</p>
-
-<br>
 
 ![PMAR analysis - particle density heatmap using Tracer model. Res 0.05º.](images/PMAR_example_1.png)
 <p align="center">PMAR analysis - particle density heatmap using Tracer model. Res 0.05º.

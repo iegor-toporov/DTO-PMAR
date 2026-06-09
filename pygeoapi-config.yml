@@ -38,11 +38,11 @@ logging:
 
 metadata:
     identification:
-        title: Test demo
-        description: Just a demo test.
+        title: Tools4MSP-PMAR
+        description: A DTO web application for on-demand anthropogenic pressure modelling and assessment based on the PMAR package.
         keywords:
-            - Test
-            - Demo
+            - DTO
+            - PMAR
         keywords_type: theme  # keyword type as per the ISO 19115 MD_KeywordTypeCode codelist. Accepted values are discipline, temporal, place, theme, stratum
         terms_of_service: https://creativecommons.org/licenses/by/4.0/
         url: https://example.org  # informative URL about the service
@@ -50,19 +50,19 @@ metadata:
         name: CC-BY 4.0 license
         url: https://creativecommons.org/licenses/by/4.0/
     provider:  # service provider details
-        name: Me
+        name: Tools4MSP
         url: https://pygeoapi.io
     contact:  # service contact details
         name: Toporov, Iegor
-        position: intern
-        address: Via ...
+        position: Intern
+        address:  Arsenale Castello, 2737/F, 30122
         city: Venezia
         stateorprovince: Veneto
-        postalcode: 99999
+        postalcode: 30122
         country: Italia
-        phone: +39 999 999 9999
-        url: ...
-        hours: Mo-Fr 08:00-17:00
+        phone: --
+        url: --
+        hours: --
         instructions: During hours of service. Off on weekends.
 
 resources:
