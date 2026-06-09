@@ -1,4 +1,4 @@
-# Python dependencies for demo_5 backend
+# Python dependencies for DTO-PMAR backend
 # From venv on 2026-05-05
 #
 # Notes for containerization:

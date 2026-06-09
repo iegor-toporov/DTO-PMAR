@@ -1,4 +1,4 @@
-# Digital Twin Ocean — A Graphical Interface to the PMAR engine
+# DTO-PMAR
 
 A lightweight web application for Lagrangian particle tracking in the ocean. It combines an OGC API Processing backend with an interactive map frontend to simulate how substances and organisms disperse under real ocean currents, and to compute particle density maps with the PMAR engine.
 
@@ -7,7 +7,7 @@ A lightweight web application for Lagrangian particle tracking in the ocean. It 
 ## Architecture
 
 ```
-demo_5/
+DTO-PMAR/
 ├── processes/
 │   ├── OpenDriftProcess.py              # OGC API process: runs OpenDrift with CMEMS data
 │   ├── PMARProcess.py                   # OGC API process: PMAR density analysis on a precomputed scenario

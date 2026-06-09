@@ -8,7 +8,7 @@ mkdir -p cache/emodnet out scenarios
 CONFIG_SRC="${PYGEOAPI_CONFIG_SRC:-/app/pygeoapi-config.yml}"
 CONFIG_OUT="${PYGEOAPI_CONFIG:-/tmp/pygeoapi-runtime.yml}"
 
-sed 's|/Users/[^/]*/Documents/[^:]*demo_5|/app|g' "$CONFIG_SRC" > "$CONFIG_OUT"
+sed 's|/Users/[^/]*/Documents/[^:]*DTO-PMAR|/app|g' "$CONFIG_SRC" > "$CONFIG_OUT"
 
 export PYGEOAPI_CONFIG="$CONFIG_OUT"
 export PYGEOAPI_OPENAPI="${PYGEOAPI_OPENAPI:-/tmp/pygeoapi-openapi.yml}"
