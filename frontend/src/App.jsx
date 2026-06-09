@@ -1280,7 +1280,13 @@ export default function App() {
         activeMapTool={activeMapTool}
         onSetTool={toggleTool}
         hasRaster={!!pmarData}
-        comparisonAreaCount={comparisonAreas.length}
+        windowCounts={{
+          histogram:  histograms.length,
+          stats:      statsEntries.length,
+          profile:    profileEntries.length,
+          threshold:  thresholdEntries.length,
+          comparison: comparisonAreas.length,
+        }}
         openWindowCount={histograms.length + statsEntries.length + profileEntries.length + thresholdEntries.length + comparisonAreas.length}
         onCloseAll={handleCloseAll}
       />

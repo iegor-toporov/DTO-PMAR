@@ -13,10 +13,20 @@ _TTL = 7 * 24 * 3600  # 7 giorni
 
 
 def _key(job_id: str) -> str:
+    """Return the Redis hash key for a given job ID."""
     return f'pmar:job:{job_id}'
 
 
 def _set_status(job_id: str, status: str, message: str = None) -> None:
+    """Write a status update for *job_id* to the Redis hash, with an optional message.
+
+    The hash entry is given a 7-day TTL so stale job records are automatically evicted.
+
+    Args:
+        job_id (str): Unique job identifier.
+        status (str): New status string (e.g. ``'running'``, ``'successful'``, ``'failed'``).
+        message (str | None): Optional detail message stored under the ``'message'`` key.
+    """
     data = {
         'status': status,
         'updated': datetime.now(timezone.utc).isoformat(),
@@ -29,6 +39,23 @@ def _set_status(job_id: str, status: str, message: str = None) -> None:
 
 @app.task(bind=True, name='run_processor')
 def run_processor(self, job_id: str, process_class_path: str, data_dict: dict):
+    """Execute a pygeoapi processor inside a Celery worker and persist the result to Redis.
+
+    Dynamically imports the processor class identified by *process_class_path*, calls its
+    ``execute()`` method with *data_dict*, and writes the outcome back to the Redis hash
+    ``pmar:job:<job_id>``.  On failure the exception is re-raised so Celery can mark the
+    task as failed and trigger any configured retry/error handling.
+
+    Args:
+        job_id (str): Unique job identifier (also the Redis hash key suffix).
+        process_class_path (str): Fully qualified dotted import path to the processor class,
+            e.g. ``'processes.PMARProcess.PMARProcessor'``.
+        data_dict (dict): OGC API input payload forwarded verbatim to ``processor.execute()``.
+
+    Raises:
+        Exception: Re-raises any exception from the processor after recording the
+            ``'failed'`` status in Redis.
+    """
     _set_status(job_id, 'running')
     try:
         module_path, class_name = process_class_path.rsplit('.', 1)

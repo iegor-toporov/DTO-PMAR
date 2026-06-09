@@ -34,11 +34,34 @@ PROCESS_METADATA = {
 
 
 class WindfarmsProcessor(BaseProcessor):
+    """OGC API Process that returns EMODnet offshore wind farm polygons for a given bounding box."""
 
     def __init__(self, processor_def):
+        """Initialise the processor with its OGC API metadata definition."""
         super().__init__(processor_def, PROCESS_METADATA)
 
     def execute(self, data):
+        """Execute the wind farms spatial query.
+
+        Validates the input bounding box, delegates the WFS fetch (with 7-day
+        file-level caching) to :func:`~processes.PMARProcess._fetch_windfarms`,
+        simplifies polygon geometries to a 0.005° tolerance to reduce payload size,
+        and serialises the result as a GeoJSON FeatureCollection.
+
+        Args:
+            data (dict): OGC API input payload. Required keys:
+                ``lon_min``, ``lat_min``, ``lon_max``, ``lat_max`` — bounding box
+                coordinates in decimal degrees (EPSG:4326).
+
+        Returns:
+            tuple[str, dict]: ``('application/json', geojson)`` where *geojson*
+            is a GeoJSON FeatureCollection. Returns an empty FeatureCollection
+            when no wind farms intersect the requested bbox.
+
+        Raises:
+            ProcessorExecuteError: If any bounding-box parameter is missing,
+                non-numeric, or otherwise invalid.
+        """
         try:
             lon_min = float(data['lon_min'])
             lat_min = float(data['lat_min'])
@@ -60,4 +83,5 @@ class WindfarmsProcessor(BaseProcessor):
         return 'application/json', geojson
 
     def __repr__(self):
+        """Return an unambiguous string representation of this processor."""
         return '<WindfarmsProcessor>'

@@ -187,11 +187,44 @@ PROCESS_METADATA = {
 
 
 class OpenDriftProcessor(BaseProcessor):
+    """OGC API Process that runs an OpenDrift Lagrangian simulation driven by CMEMS ocean data."""
 
     def __init__(self, processor_def):
+        """Initialise the processor with its OGC API metadata definition."""
         super().__init__(processor_def, PROCESS_METADATA)
 
     def execute(self, data):
+        """Execute an OpenDrift Lagrangian simulation and return particle trajectories.
+
+        Resolves the seeding geometry (circle or rectangle), downloads the required CMEMS
+        forcing fields (currents; optionally wind, waves, T/S) with file-level caching,
+        runs the selected OpenDrift model, and serialises the resulting trajectories
+        including stranding events.
+
+        Args:
+            data (dict): OGC API input payload. Key parameters:
+
+                - ``model`` (str): One of ``OceanDrift``, ``PlastDrift``, ``LarvalFish``,
+                  ``OpenOil``. Default: ``OceanDrift``.
+                - ``seeding_type`` (str): ``'circle'`` (default) or ``'rectangle'``.
+                - ``lon`` / ``lat`` / ``radius`` (float): Centre and radius (m) for circle seeding.
+                - ``lon_min`` / ``lon_max`` / ``lat_min`` / ``lat_max`` (float): Extent for
+                  rectangle seeding.
+                - ``start_time`` (str): ISO 8601 start datetime.
+                - ``duration_hours`` (float): Simulation duration in hours.
+                - ``number`` (int): Number of particles (capped at 10 000).
+                - ``cmems_username`` / ``cmems_password`` (str): Optional explicit CMEMS
+                  credentials; fall back on environment variables if omitted.
+
+        Returns:
+            tuple[str, dict]: ``('application/json', result)`` where *result* contains
+            ``times`` (list of ISO datetime strings), ``steps`` (per-timestep particle
+            position arrays), and ``model`` (model identifier).
+
+        Raises:
+            ProcessorExecuteError: On invalid inputs, CMEMS download failure, or if the
+                seeding area falls entirely on land or outside the CMEMS domain.
+        """
         seeding_type   = data.get('seeding_type', 'circle')
         model_name     = data.get('model', 'OceanDrift')
         number         = min(int(data.get('number', 100)), 10000)
@@ -323,12 +356,29 @@ class OpenDriftProcessor(BaseProcessor):
         return 'application/json', result
 
     def __repr__(self):
+        """Return an unambiguous string representation of this processor."""
         return '<OpenDriftProcessor>'
 
 
 # ── Model factory ────────────────────────────────────────────────────────────
 
 def _build_model(model_name, model_meta):
+    """Instantiate and configure an OpenDrift model object.
+
+    Imports the model class dynamically from ``model_meta['module']``, constructs the
+    instance with logging suppressed (``loglevel=50``), and applies model-specific
+    configuration (evaporation/emulsification for OpenOil, Stokes drift for PlastDrift,
+    vertical mixing for LarvalFish).
+
+    Args:
+        model_name (str): Model key (e.g. ``'OpenOil'``).
+        model_meta (dict): Entry from ``AVAILABLE_MODELS`` or ``PRESSURE_MODELS``,
+            containing at least ``module`` and ``class`` keys.
+
+    Returns:
+        opendrift.models.baseoil.OpenOil | opendrift.models.oceandrift.OceanDrift | ...:
+            Configured OpenDrift model instance ready for reader attachment and seeding.
+    """
     import importlib
     logger.debug(f'Inizializzazione modello: {model_name}')
     module = importlib.import_module(model_meta['module'])
@@ -364,6 +414,17 @@ def _build_model(model_name, model_meta):
 # ── CMEMS auth helper ────────────────────────────────────────────────────────
 
 def _cmems_auth(creds):
+    """Extract CMEMS credentials as a kwargs dict for ``copernicusmarine.subset()``.
+
+    Args:
+        creds (dict | None): Dict with ``'username'`` and ``'password'`` keys, or ``None``
+            to fall back on environment variables
+            (``COPERNICUSMARINE_SERVICE_USERNAME`` / ``COPERNICUSMARINE_SERVICE_PASSWORD``).
+
+    Returns:
+        dict: ``{'username': ..., 'password': ...}`` when explicit credentials are provided,
+        or an empty dict ``{}`` to let the CMEMS client read environment variables.
+    """
     if not creds:
         return {}
     u = creds.get('username', '')
@@ -376,6 +437,24 @@ def _cmems_auth(creds):
 # ── Cache helpers — correnti ─────────────────────────────────────────────────
 
 def _cache_key(lon_min, lon_max, lat_min, lat_max, start_time, end_time, suffix='cur', max_depth=0.5, margin=5.0):
+    """Compute a stable file-system cache key for a CMEMS NetCDF download.
+
+    Snaps the bounding box to integer degree boundaries, normalises the time range to
+    whole days, and produces both a human-readable filename label and a short MD5
+    digest to avoid collisions when labels are ambiguous.
+
+    Args:
+        lon_min / lon_max / lat_min / lat_max (float): Seeding bbox in decimal degrees.
+        start_time (datetime): Simulation start; snapped to midnight.
+        end_time (datetime): Simulation end; used to compute the number of whole days.
+        suffix (str): Tag appended to the filename (e.g. ``'cur'``, ``'wind'``, ``'wav'``).
+        max_depth (float): Maximum depth in metres; included in the key for vertical datasets.
+        margin (float): Spatial buffer in degrees added around the bbox for CMEMS download.
+
+    Returns:
+        tuple: ``(cache_path, slon_min, slon_max, slat_min, slat_max, snap_start, n_days)``
+        where *cache_path* is an absolute path under ``CACHE_DIR``.
+    """
     # Snap bounds to integer degrees for stable cache keys
     slon_min = math.floor(lon_min)
     slon_max = math.ceil(lon_max)
@@ -400,6 +479,23 @@ def _cache_key(lon_min, lon_max, lat_min, lat_max, start_time, end_time, suffix=
 
 
 def _get_forcing_file(lon_min, lon_max, lat_min, lat_max, start_time, end_time, time_step_hours=1, max_depth=0.5, margin=5.0, cmems_creds=None):
+    """Return the path to a cached CMEMS current-velocity NetCDF, downloading if absent.
+
+    Selects hourly or daily datasets depending on *time_step_hours*, then delegates to
+    :func:`_download_currents` on cache miss.  The cache key is computed via
+    :func:`_cache_key` from the snapped bbox, date range, depth, and margin.
+
+    Args:
+        lon_min / lon_max / lat_min / lat_max (float): Seeding bbox in decimal degrees.
+        start_time / end_time (datetime): Simulation time window.
+        time_step_hours (int): Requested time resolution (≥ 24 selects daily datasets).
+        max_depth (float): Maximum depth in metres for vertical models.
+        margin (float): Spatial buffer in degrees added around the bbox.
+        cmems_creds (dict | None): Explicit CMEMS credentials, or ``None`` for env vars.
+
+    Returns:
+        str: Absolute path to the cached NetCDF file.
+    """
     suffix = 'cur_d' if time_step_hours >= 24 else 'cur'
     cache_path, slon_min, slon_max, slat_min, slat_max, snap_start, n_days = _cache_key(
         lon_min, lon_max, lat_min, lat_max, start_time, end_time, suffix=suffix, max_depth=max_depth, margin=margin
@@ -418,6 +514,20 @@ def _get_forcing_file(lon_min, lon_max, lat_min, lat_max, start_time, end_time, 
 
 
 def _get_wind_file(lon_min, lon_max, lat_min, lat_max, start_time, end_time, margin=5.0, cmems_creds=None):
+    """Return the path to a cached CMEMS wind NetCDF, downloading if absent.
+
+    Non-blocking: logs a warning and returns ``None`` on download failure, allowing the
+    calling model to degrade gracefully (e.g. no wind-driven Stokes drift).
+
+    Args:
+        lon_min / lon_max / lat_min / lat_max (float): Seeding bbox in decimal degrees.
+        start_time / end_time (datetime): Simulation time window.
+        margin (float): Spatial buffer in degrees added around the bbox.
+        cmems_creds (dict | None): Explicit CMEMS credentials, or ``None`` for env vars.
+
+    Returns:
+        str | None: Absolute path to the cached NetCDF, or ``None`` on download failure.
+    """
     cache_path, slon_min, slon_max, slat_min, slat_max, snap_start, n_days = _cache_key(
         lon_min, lon_max, lat_min, lat_max, start_time, end_time, suffix='wind', margin=margin
     )
@@ -434,6 +544,22 @@ def _get_wind_file(lon_min, lon_max, lat_min, lat_max, start_time, end_time, mar
 
 
 def _build_bbox(slon_min, slon_max, slat_min, slat_max, snap_start, n_days, max_depth=0.5, margin=5.0):
+    """Build the keyword-argument dict for ``copernicusmarine.subset()``.
+
+    Expands the snapped bounding box by *margin* degrees on each side and adds a depth
+    range from 0 to *max_depth* metres.  The temporal window spans *n_days* full days
+    starting from *snap_start*.
+
+    Args:
+        slon_min / slon_max / slat_min / slat_max (int): Integer-degree snapped bbox.
+        snap_start (datetime): Midnight-aligned simulation start.
+        n_days (int): Number of whole days to download.
+        max_depth (float): Maximum depth in metres.
+        margin (float): Additional spatial buffer in degrees.
+
+    Returns:
+        dict: Keyword arguments ready to be unpacked into ``copernicusmarine.subset()``.
+    """
     snap_end = snap_start + timedelta(days=n_days)
     return dict(
         minimum_longitude = slon_min - margin,
@@ -447,6 +573,24 @@ def _build_bbox(slon_min, slon_max, slat_min, slat_max, snap_start, n_days, max_
     )
 
 def _download_currents(slon_min, slon_max, slat_min, slat_max, snap_start, n_days, cache_path, time_step_hours=1, max_depth=0.5, margin=5.0, cmems_creds=None):
+    """Download ocean current velocity (uo, vo) from CMEMS and save to *cache_path*.
+
+    Tries each dataset in ``CMEMS_CURRENT_DATASETS_HOURLY`` (or ``_DAILY``) in order,
+    moving on to the next if the current one raises an exception.
+
+    Args:
+        slon_min / slon_max / slat_min / slat_max (int): Integer-degree snapped bbox.
+        snap_start (datetime): Midnight-aligned start date.
+        n_days (int): Number of days to download.
+        cache_path (str): Destination file path for the output NetCDF.
+        time_step_hours (int): ≥ 24 selects daily-resolution datasets.
+        max_depth (float): Maximum depth in metres.
+        margin (float): Spatial buffer in degrees.
+        cmems_creds (dict | None): Explicit CMEMS credentials, or ``None`` for env vars.
+
+    Raises:
+        ProcessorExecuteError: If every available dataset fails to download.
+    """
     import copernicusmarine
     datasets = CMEMS_CURRENT_DATASETS_DAILY if time_step_hours >= 24 else CMEMS_CURRENT_DATASETS_HOURLY
     freq_label = 'giornaliero' if time_step_hours >= 24 else 'orario'
@@ -474,6 +618,22 @@ def _download_currents(slon_min, slon_max, slat_min, slat_max, snap_start, n_day
 
 
 def _download_wind(slon_min, slon_max, slat_min, slat_max, snap_start, n_days, cache_path, margin=5.0, cmems_creds=None):
+    """Download 10-m wind components (eastward, northward) from CMEMS.
+
+    Depth parameters are omitted from the request as wind data is surface-only.
+    Tries datasets in a local ``WIND_DATASETS`` list in order.
+
+    Args:
+        slon_min / slon_max / slat_min / slat_max (int): Integer-degree snapped bbox.
+        snap_start (datetime): Midnight-aligned start date.
+        n_days (int): Number of days to download.
+        cache_path (str): Destination file path for the output NetCDF.
+        margin (float): Spatial buffer in degrees.
+        cmems_creds (dict | None): Explicit CMEMS credentials, or ``None`` for env vars.
+
+    Raises:
+        RuntimeError: If every available wind dataset fails to download.
+    """
     import copernicusmarine
     logger.info(f'Download vento CMEMS (margin={margin}°) — {snap_start.date()} +{n_days}d → {os.path.basename(cache_path)}')
     bbox = _build_bbox(slon_min, slon_max, slat_min, slat_max, snap_start, n_days, margin=margin)
@@ -509,6 +669,20 @@ def _download_wind(slon_min, slon_max, slat_min, slat_max, snap_start, n_days, c
 # ── Cache helpers — onde (Stokes drift) ─────────────────────────────────────
 
 def _get_waves_file(lon_min, lon_max, lat_min, lat_max, start_time, end_time, margin=5.0, cmems_creds=None):
+    """Return the path to a cached CMEMS Stokes-drift wave NetCDF, downloading if absent.
+
+    Non-blocking: returns ``None`` on download failure so callers can fall back to
+    wind-parameterised Stokes drift.
+
+    Args:
+        lon_min / lon_max / lat_min / lat_max (float): Seeding bbox in decimal degrees.
+        start_time / end_time (datetime): Simulation time window.
+        margin (float): Spatial buffer in degrees.
+        cmems_creds (dict | None): Explicit CMEMS credentials, or ``None`` for env vars.
+
+    Returns:
+        str | None: Absolute path to the cached NetCDF, or ``None`` on failure.
+    """
     cache_path, slon_min, slon_max, slat_min, slat_max, snap_start, n_days = _cache_key(
         lon_min, lon_max, lat_min, lat_max, start_time, end_time, suffix='wav', margin=margin
     )
@@ -525,6 +699,22 @@ def _get_waves_file(lon_min, lon_max, lat_min, lat_max, start_time, end_time, ma
 
 
 def _download_waves(slon_min, slon_max, slat_min, slat_max, snap_start, n_days, cache_path, margin=5.0, cmems_creds=None):
+    """Download surface Stokes-drift components (VSDX, VSDY) from CMEMS wave models.
+
+    Depth parameters are omitted as Stokes drift is inherently a surface-layer quantity.
+    Tries datasets in ``CMEMS_WAVES_DATASETS`` order.
+
+    Args:
+        slon_min / slon_max / slat_min / slat_max (int): Integer-degree snapped bbox.
+        snap_start (datetime): Midnight-aligned start date.
+        n_days (int): Number of days to download.
+        cache_path (str): Destination file path for the output NetCDF.
+        margin (float): Spatial buffer in degrees.
+        cmems_creds (dict | None): Explicit CMEMS credentials, or ``None`` for env vars.
+
+    Raises:
+        RuntimeError: If every available wave dataset fails to download.
+    """
     import copernicusmarine
     logger.info(f'Download onde CMEMS (vsdx/vsdy, margin={margin}°) — {snap_start.date()} +{n_days}d → {os.path.basename(cache_path)}')
     bbox = _build_bbox(slon_min, slon_max, slat_min, slat_max, snap_start, n_days, max_depth=0.5, margin=margin)
@@ -553,6 +743,20 @@ def _download_waves(slon_min, slon_max, slat_min, slat_max, snap_start, n_days, 
 # ── Cache helpers — temperatura e salinità (OpenOil weathering) ─────────────
 
 def _get_thermo_file(lon_min, lon_max, lat_min, lat_max, start_time, end_time, margin=5.0, cmems_creds=None):
+    """Return the path to a cached CMEMS temperature/salinity NetCDF, downloading if absent.
+
+    Non-blocking: returns ``None`` on failure so OpenOil degrades to constant T/S values
+    for weathering rather than aborting the simulation.
+
+    Args:
+        lon_min / lon_max / lat_min / lat_max (float): Seeding bbox in decimal degrees.
+        start_time / end_time (datetime): Simulation time window.
+        margin (float): Spatial buffer in degrees.
+        cmems_creds (dict | None): Explicit CMEMS credentials, or ``None`` for env vars.
+
+    Returns:
+        str | None: Absolute path to the cached NetCDF, or ``None`` on failure.
+    """
     cache_path, slon_min, slon_max, slat_min, slat_max, snap_start, n_days = _cache_key(
         lon_min, lon_max, lat_min, lat_max, start_time, end_time, suffix='tem', margin=margin
     )
@@ -640,6 +844,20 @@ def _get_max_depth_for_area(lon_min, lon_max, lat_min, lat_max, margin=5.0, cmem
 
 
 def _download_bathymetry(slon_min, slon_max, slat_min, slat_max, cache_path, margin=5.0, cmems_creds=None):
+    """Download static seafloor depth (deptho) from a CMEMS bathymetry dataset.
+
+    Requests the ``deptho`` variable without time or depth dimensions.  Tries datasets
+    in ``CMEMS_BATHY_DATASETS`` order.
+
+    Args:
+        slon_min / slon_max / slat_min / slat_max (int): Integer-degree snapped bbox.
+        cache_path (str): Destination file path for the output NetCDF.
+        margin (float): Spatial buffer in degrees.
+        cmems_creds (dict | None): Explicit CMEMS credentials, or ``None`` for env vars.
+
+    Raises:
+        RuntimeError: If every available bathymetry dataset fails to download.
+    """
     import copernicusmarine
     logger.info(f'Download batimetria CMEMS (deptho, margin={margin}°) → {os.path.basename(cache_path)}')
     geo_bbox = dict(
@@ -671,6 +889,23 @@ def _download_bathymetry(slon_min, slon_max, slat_min, slat_max, cache_path, mar
 # ── Trajectory reader ────────────────────────────────────────────────────────
 
 def _read_trajectories(path):
+    """Parse an OpenDrift NetCDF output file into a JSON-serialisable trajectory dict.
+
+    Reads particle positions at every timestep, detects stranding events (masked
+    positions or non-zero ``status``), and keeps stranded particles frozen at their last
+    valid position for frontend rendering.
+
+    Args:
+        path (str): Absolute path to the OpenDrift NetCDF output file.
+
+    Returns:
+        dict: Keys:
+
+        - ``times`` (list[str]): ISO 8601 datetime strings, one per timestep.
+        - ``steps`` (list[list]): Per-timestep list of ``[lon, lat]`` or
+          ``[lon, lat, True]`` (True = stranded) for each particle, or ``None``
+          for particles that exited the domain before recording a valid position.
+    """
     import netCDF4 as nc4
 
     ds       = nc4.Dataset(path)

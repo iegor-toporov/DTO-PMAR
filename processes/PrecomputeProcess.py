@@ -133,7 +133,27 @@ PROCESS_METADATA = {
 
 
 def _save_custom_shapefile(geojson_input, shapefile_b64, dest_dir, custom_id):
-    """Salva la geometria di un custom scenario in dest_dir e restituisce il path .shp."""
+    """Persist the seeding geometry for a custom scenario as a shapefile.
+
+    Accepts either a GeoJSON string/dict or a base64-encoded ZIP archive containing a
+    shapefile.  The resulting ``.shp`` file is written to *dest_dir* using *custom_id*
+    as the base filename.
+
+    Args:
+        geojson_input (str | dict | None): GeoJSON FeatureCollection, Feature, or bare
+            geometry dict.  Takes priority over *shapefile_b64* when both are provided.
+        shapefile_b64 (str | None): Base64-encoded ZIP archive that must contain at
+            least one ``.shp`` file.
+        dest_dir (str): Directory path where the shapefile will be saved.
+        custom_id (str): Unique identifier used as the base filename (without extension).
+
+    Returns:
+        str: Absolute path to the written ``.shp`` file.
+
+    Raises:
+        ProcessorExecuteError: If neither *geojson_input* nor *shapefile_b64* is
+            provided, or if the ZIP archive contains no ``.shp`` file.
+    """
     shp_path = os.path.join(dest_dir, f'{custom_id}.shp')
     if geojson_input is not None:
         geojson = json.loads(geojson_input) if isinstance(geojson_input, str) else geojson_input
@@ -162,7 +182,27 @@ def _save_custom_shapefile(geojson_input, shapefile_b64, dest_dir, custom_id):
 
 
 def _build_custom_scenario(data, shp_path=None, area_label=None):
-    """Valida i parametri, crea lo shapefile (se non fornito) e il JSON di metadati. Restituisce (sc, custom_id, shp_path)."""
+    """Validate simulation parameters, persist the seeding shapefile, and write scenario metadata.
+
+    Constructs a scenario dict from the OGC API input payload, applies bounds to numeric
+    parameters, generates a unique ``custom_*`` scenario ID, and saves a JSON metadata
+    file to ``SCENARIOS_DIR``.
+
+    Args:
+        data (dict): OGC API input payload containing simulation parameters.
+        shp_path (str | None): Pre-resolved shapefile path (e.g. from a Tools4MSP area).
+            If ``None``, the shapefile is created from ``data['geojson']`` or
+            ``data['shapefile_b64']``.
+        area_label (str | None): Human-readable area name to embed in scenario labels.
+
+    Returns:
+        tuple[dict, str, str]: ``(scenario_dict, scenario_id, shp_path)`` where
+        *scenario_dict* is the full metadata record written to disk.
+
+    Raises:
+        ProcessorExecuteError: On invalid ``pressure`` value, invalid ``start_time``
+            format, or missing geometry inputs.
+    """
     geojson_input = data.get('geojson')
     shapefile_b64 = data.get('shapefile_b64')
     pressure      = data.get('pressure', 'generic')
@@ -227,6 +267,24 @@ def _build_custom_scenario(data, shp_path=None, area_label=None):
 
 
 def _run_scenario(scenario_id, sc, shp_path, cmems_creds=None):
+    """Execute a single OpenDrift simulation run and save the trajectory NetCDF.
+
+    Skips execution if the expected output NetCDF already exists.  Downloads the
+    required CMEMS forcing fields (currents; optionally wind, waves, T/S) based on the
+    pressure model configuration, seeds particles from *shp_path*, and runs OpenDrift.
+    A daemon thread logs simulation progress every 60 seconds.  On success, the
+    temporary NetCDF is atomically moved to ``SCENARIOS_DIR``.
+
+    Args:
+        scenario_id (str): Unique identifier used in log messages.
+        sc (dict): Scenario metadata dict produced by :func:`_build_custom_scenario`.
+        shp_path (str): Path to the seeding-area shapefile.
+        cmems_creds (dict | None): Explicit CMEMS credentials, or ``None`` for env vars.
+
+    Raises:
+        Exception: Propagates any OpenDrift or CMEMS error after cleaning up the
+            temporary NetCDF file.
+    """
     nc_output = os.path.join(SCENARIOS_DIR, sc['nc_filename'])
 
     if os.path.exists(nc_output):
@@ -303,6 +361,7 @@ def _run_scenario(scenario_id, sc, shp_path, cmems_creds=None):
         stop_progress = threading.Event()
 
         def _log_progress():
+            """Log simulation progress (day, active particles, elapsed time) every 60 seconds."""
             while not stop_progress.wait(60):
                 try:
                     sim_time    = getattr(o, 'time', None)
@@ -350,7 +409,19 @@ def _run_scenario(scenario_id, sc, shp_path, cmems_creds=None):
 
 
 def _run_multi_scenario(scenario_id, sc, shp_path, cmems_creds=None):
-    """Esegue N run OpenDrift sfalsati di tshift giorni e salva gli NC files."""
+    """Execute multiple time-shifted OpenDrift runs for a multi-seeding scenario.
+
+    Iterates over the ``seedings`` count in *sc*, offsetting each run's ``start_time``
+    by ``tshift`` days.  Already-computed NetCDF files are skipped without re-running.
+    Delegates each individual run to :func:`_run_scenario`.
+
+    Args:
+        scenario_id (str): Unique identifier used in log messages.
+        sc (dict): Scenario metadata dict with ``seedings``, ``tshift``, ``start_time``,
+            and ``nc_filenames`` entries.
+        shp_path (str): Path to the seeding-area shapefile.
+        cmems_creds (dict | None): Explicit CMEMS credentials, or ``None`` for env vars.
+    """
     seedings = sc.get('seedings', 1)
     tshift   = sc.get('tshift', 30)
     nc_filenames = sc.get('nc_filenames', [sc['nc_filename']])
@@ -369,11 +440,42 @@ def _run_multi_scenario(scenario_id, sc, shp_path, cmems_creds=None):
 
 
 class PrecomputeProcessor(BaseProcessor):
+    """OGC API Process that pre-computes and stores OpenDrift trajectory NetCDF files.
+
+    Accepts a seeding geometry (GeoJSON, shapefile ZIP, or Tools4MSP area ID),
+    builds a scenario metadata record, and runs one or more time-shifted OpenDrift
+    simulations.  Results are written to ``SCENARIOS_DIR`` for later consumption by
+    :class:`PMARProcessor`.  A process-wide semaphore ensures only one pre-computation
+    runs at a time.
+    """
 
     def __init__(self, processor_def):
+        """Initialise the processor with its OGC API metadata definition."""
         super().__init__(processor_def, PROCESS_METADATA)
 
     def execute(self, data):
+        """Validate inputs, build the scenario record, and run the OpenDrift pre-computation.
+
+        Resolves the seeding geometry from the provided input (GeoJSON, shapefile, or
+        Tools4MSP area ID), creates the scenario metadata via :func:`_build_custom_scenario`,
+        acquires the global pre-computation semaphore (rejecting concurrent requests), and
+        delegates to :func:`_run_multi_scenario`.
+
+        Args:
+            data (dict): OGC API input payload. At least one of the following geometry
+                sources must be present: ``geojson``, ``shapefile_b64``, or
+                ``t4msp_area_id``.  Additional keys control simulation parameters
+                (see ``PROCESS_METADATA``).
+
+        Returns:
+            tuple[str, dict]: ``('application/json', result)`` with keys
+            ``scenario_id``, ``status`` (``'done'``), ``nc_filename``,
+            ``nc_filenames``, and ``seedings``.
+
+        Raises:
+            ProcessorExecuteError: If no geometry source is provided, if a
+                pre-computation is already running, or if the simulation fails.
+        """
         geojson_input  = data.get('geojson')
         shapefile_b64  = data.get('shapefile_b64')
         t4msp_area_id  = data.get('t4msp_area_id')
@@ -423,4 +525,5 @@ class PrecomputeProcessor(BaseProcessor):
         }
 
     def __repr__(self):
+        """Return an unambiguous string representation of this processor."""
         return '<PrecomputeProcessor>'

@@ -20,7 +20,7 @@ export default function ToolsPanel({
   activeMapTool,
   onSetTool,
   hasRaster,
-  comparisonAreaCount = 0,
+  windowCounts = {},
   openWindowCount = 0,
   onCloseAll,
 }) {
@@ -41,8 +41,8 @@ export default function ToolsPanel({
       width: BTN_WIDTH,
     }}>
       {TOOLS.map(({ key, Icon, labelKey }) => {
-        const isActive  = activeMapTool === key
-        const showBadge = key === 'comparison' && comparisonAreaCount > 0
+        const isActive = activeMapTool === key
+        const count    = windowCounts[key] ?? 0
         return (
           <div key={key} style={{ position: 'relative' }}>
             <Button
@@ -63,10 +63,10 @@ export default function ToolsPanel({
             >
               {c[labelKey]}
             </Button>
-            {showBadge && (
+            {count > 0 && (
               <Badge
                 size="xs"
-                color="blue"
+                color="red"
                 circle
                 style={{
                   position: 'absolute',
@@ -80,7 +80,7 @@ export default function ToolsPanel({
                   zIndex: 1,
                 }}
               >
-                {comparisonAreaCount}
+                {count}
               </Badge>
             )}
           </div>

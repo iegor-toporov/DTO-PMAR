@@ -43,7 +43,15 @@ _T4MSP_CACHE_TTL   = 3600  # seconds TODO
 
 
 def _fetch_t4msp_areas() -> list:
-    """Ritorna la lista {id, label} dall'API Tools4MSP con cache in memoria di 1 ora."""
+    """Fetch the list of Tools4MSP domain areas from the public API, with 1-hour in-memory cache.
+
+    Returns a list of ``{id, label}`` dicts sourced from the Tools4MSP REST API.
+    The result is stored in the module-level ``_T4MSP_CACHE`` dict; on network failure,
+    returns the stale cache if available, or an empty list on first-call failure.
+
+    Returns:
+        list[dict]: Area descriptors, each containing at least ``id`` and ``label``.
+    """
     import time as _t, urllib.request as _u
     now = _t.time()
     if _T4MSP_CACHE['areas'] is not None and (now - _T4MSP_CACHE['ts']) < _T4MSP_CACHE_TTL:
@@ -62,12 +70,22 @@ def _fetch_t4msp_areas() -> list:
 
 
 def ensure_t4msp_shapefile(area_id: int) -> str:
-    """Scarica e salva la geometria T4MSP per area_id se non già presente. Ritorna il path .shp.
+    """Download and cache the polygon geometry for a Tools4MSP domain area as a shapefile.
 
-    La geometria viene semplificata a ~0.01° di tolleranza prima del salvataggio:
-    per il seeding OpenDrift non serve precisione costiera (OpenDrift usa la propria
-    coastline per lo stranding), e semplificare riduce i vertici da migliaia a ~decine,
-    abbattendo il costo del point-in-polygon test durante seed_from_shapefile.
+    Returns immediately if the shapefile already exists in ``SCENARIOS_SHP_DIR``.
+    Otherwise fetches the geometry from the Tools4MSP API, simplifies it to a ~0.01°
+    tolerance (reducing vertex count from thousands to tens to accelerate OpenDrift's
+    point-in-polygon test during ``seed_from_shapefile``), and saves the result as an
+    EPSG:4326 shapefile.
+
+    Args:
+        area_id (int): Numeric Tools4MSP domain area identifier.
+
+    Returns:
+        str: Absolute path to the ``.shp`` file.
+
+    Raises:
+        urllib.error.URLError: If the HTTP request to the Tools4MSP API fails.
     """
     import urllib.request as _u
     from shapely.geometry import shape
@@ -231,11 +249,61 @@ PROCESS_METADATA = {
 
 
 class PMARProcessor(BaseProcessor):
+    """OGC API Process that computes a PMAR particle-density raster from Lagrangian trajectories.
+
+    Supports two execution modes:
+
+    - **Scenario mode**: reads pre-computed OpenDrift NetCDF files stored by
+      :class:`PrecomputeProcessor` and runs only the PMAR density analysis.
+    - **Custom mode**: runs a full OpenDrift simulation on-the-fly, then analyses it.
+
+    Optional anthropogenic-use layers (wind farms, offshore installations, or a custom GeoTIFF)
+    can weight the density raster via PMAR's weighting mechanism.
+    """
 
     def __init__(self, processor_def):
+        """Initialise the processor with its OGC API metadata definition."""
         super().__init__(processor_def, PROCESS_METADATA)
 
     def execute(self, data):
+        """Run the PMAR particle-density analysis and return a raster result.
+
+        Supports two modes depending on whether ``scenario_id`` is provided:
+
+        - **Scenario mode**: loads pre-computed trajectory NetCDF files produced by
+          :class:`PrecomputeProcessor` and runs only the PMAR density analysis.
+        - **Custom mode**: runs a full OpenDrift simulation on-the-fly, then analyses it.
+
+        Optional anthropogenic-use layers (wind farms, offshore installations, or a
+        custom GeoTIFF) can weight the density histogram via PMAR's weighting mechanism.
+        For multi-seeding scenarios (``seedings > 1``), histograms from all runs are
+        averaged and the standard deviation is also returned.
+
+        Args:
+            data (dict): OGC API input payload. Key parameters:
+
+                - ``scenario_id`` (str | None): Pre-computed scenario ID.  If set,
+                  skips simulation entirely.
+                - ``geojson`` / ``shapefile_b64`` (str): Seeding area geometry
+                  (required when ``scenario_id`` is absent).
+                - ``pressure`` (str): ``'generic'``, ``'plastic'``, ``'oil'``, or
+                  ``'larvae'``.
+                - ``use_source`` (str): ``'none'``, ``'windfarms'``,
+                  ``'offshore_installations'``, or ``'geotiff'``.
+                - ``res`` (float): Output grid resolution in decimal degrees.
+                - ``margin`` (float): Degrees added around the seeding bbox to
+                  define the PMAR study area.
+
+        Returns:
+            tuple[str, dict]: ``('application/json', result)`` containing raster grid
+            values, colourbar PNGs (base64), a GeoTIFF (base64), Leaflet-format bounds,
+            PMAR indicators (SUM, MAX, Q90), and an optional standard-deviation raster
+            for multi-seeding runs.
+
+        Raises:
+            ProcessorExecuteError: On invalid inputs, missing pre-computed files,
+                CMEMS download failure, or PMAR analysis errors.
+        """
         import xarray as xr
         from pmar.pmar import PMAR
         from pmar.utils import make_grid
@@ -626,6 +694,7 @@ class PMARProcessor(BaseProcessor):
                 raise ProcessorExecuteError(str(e))
 
     def __repr__(self):
+        """Return an unambiguous string representation of this processor."""
         return '<PMARProcessor>'
 
 
@@ -704,7 +773,16 @@ def _histogram_to_geotiff(h):
 
 
 def _make_colorbar_png(norm, cmap, text_color):
-    """Genera un PNG verticale della colorbar con il colore testo specificato."""
+    """Render a vertical colorbar as a transparent PNG and return it as a base64 string.
+
+    Args:
+        norm (matplotlib.colors.Normalize): Normalisation instance (e.g. ``LogNorm``).
+        cmap (matplotlib.colors.Colormap): Colormap to render.
+        text_color (str): Tick label and outline colour (e.g. ``'white'`` or ``'#1e293b'``).
+
+    Returns:
+        str: Base64-encoded PNG bytes of the colorbar figure.
+    """
     import matplotlib.ticker as ticker
     fig_cb = plt.figure(figsize=(0.65, 2.8), dpi=150)
     cb_ax  = fig_cb.add_axes([0.18, 0.06, 0.38, 0.88])
@@ -770,7 +848,22 @@ def _raster_to_png(h):
 
 
 def _serialize_indicator(da, res):
-    """Serializza una DataArray indicatore (SUM/MAX/Q90) al formato raster JSON."""
+    """Serialise a PMAR indicator DataArray (SUM, MAX, or Q90) to the raster JSON format.
+
+    Normalises coordinate names to ``'x'`` / ``'y'``, delegates rendering to
+    :func:`_raster_to_png` and GeoTIFF encoding to :func:`_histogram_to_geotiff`,
+    and returns ``None`` if the indicator contains no positive finite values.
+
+    Args:
+        da (xarray.DataArray): Indicator DataArray with spatial coordinates.
+        res (float): Grid resolution in decimal degrees (stored verbatim in the output dict).
+
+    Returns:
+        dict | None: Serialised indicator dict with keys ``raster_values``,
+        ``raster_lon_min``, ``raster_lat_min``, ``raster_res``, ``raster_nx``,
+        ``raster_ny``, ``colorbar_b64``, ``colorbar_light_b64``, ``vmin``,
+        ``vmax``, ``geotiff_b64``; or ``None`` if no valid data is present.
+    """
     rename = {}
     for src, dst in [('x_c', 'x'), ('y_c', 'y'), ('lon', 'x'), ('lat', 'y'),
                      ('longitude', 'x'), ('latitude', 'y')]:

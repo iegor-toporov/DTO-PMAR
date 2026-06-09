@@ -29,11 +29,33 @@ PROCESS_METADATA = {
 
 
 class ScenarioStatusProcessor(BaseProcessor):
+    """OGC API Process that reports the pre-computation status of all registered PMAR scenarios."""
 
     def __init__(self, processor_def):
+        """Initialise the processor with its OGC API metadata definition."""
         super().__init__(processor_def, PROCESS_METADATA)
 
     def execute(self, data):
+        """Scan the scenarios directory and return a status map for every custom scenario.
+
+        For each ``custom_*.json`` metadata file found in ``SCENARIOS_DIR``, determines
+        whether all expected NetCDF trajectory files are present on disk and assembles
+        a summary dict.  Files are sorted by modification time, newest first.  Also
+        fetches the list of Tools4MSP domain areas (with 1-hour in-memory cache) for
+        the frontend area selector.
+
+        Args:
+            data (dict): OGC API input payload (no inputs required for this process).
+
+        Returns:
+            tuple[str, dict]: ``('application/json', result)`` where *result* contains:
+
+            - ``scenarios`` (dict): Mapping ``scenario_id → status_dict`` for every
+              custom scenario found in ``SCENARIOS_DIR``.  Each status dict includes
+              ``computed``, ``nc_size_mb``, labels, simulation parameters, and seeding info.
+            - ``t4msp_areas`` (list[dict]): List of ``{id, label}`` entries from the
+              Tools4MSP domain-areas API.
+        """
         scenarios = {}
 
         for meta_file in sorted(glob.glob(os.path.join(SCENARIOS_DIR, 'custom_*.json')), key=os.path.getmtime, reverse=True):
@@ -77,4 +99,5 @@ class ScenarioStatusProcessor(BaseProcessor):
         return 'application/json', {'scenarios': scenarios, 't4msp_areas': t4msp_areas}
 
     def __repr__(self):
+        """Return an unambiguous string representation of this processor."""
         return '<ScenarioStatusProcessor>'
