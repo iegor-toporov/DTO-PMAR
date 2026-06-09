@@ -58,55 +58,26 @@ DTO-PMAR/
 
 ## Requirements
 
-### Production (Docker)
-
 - Docker and Docker Compose
 - A `.env` file with runtime secrets (see below)
 - A `.git_token` file containing a GitHub personal access token with read access to the private PMAR repo (used only at image build time)
 - A free [Copernicus Marine](https://marine.copernicus.eu/) account
 
-### Development
-
-- Python 3.12 with a virtual environment (`venv/`)
-- pygeoapi (installed from source in `venv/pygeoapi/`)
-- OpenDrift and its dependencies
-- PMAR library — `pip install git+https://<token>@github.com/sofbo/pmar.git`
-- `copernicusmarine` Python client
-- `rasterio`, `networkx`, `cartopy`, `celery`, `redis`
-- Node.js ≥ 18 (frontend only)
-
 ---
 
 ## Getting started
 
-### Production — Docker Compose
-
 ```bash
-# 1. Create a .env file with required variables (Redis URL, etc.)
-# 2. Place your GitHub token in .git_token (read access to the PMAR repo)
+git clone <repo>
+cd DTO-PMAR
+# Copy .env.example to .env and fill in your credentials
+# Place your GitHub token in .git_token
 docker compose up --build -d
 ```
 
 The frontend is served at `http://localhost:80`. The backend runs on port 5001 (internal only). The Celery worker and Redis are started automatically.
 
-### Backend (development)
-
-```bash
-source venv/bin/activate
-./scripts/start.sh
-```
-
-`start.sh` removes leftover temporary NetCDF files from `out/`, regenerates the OpenAPI spec from `pygeoapi-config.yml`, and starts the server on port 5001.
-
-### Frontend (development)
-
-```bash
-cd frontend
-npm install
-npm run dev
-```
-
-Vite proxies API requests to `http://localhost:5001` automatically.
+`cache/`, `out/`, and `scenarios/` are tracked in git as empty directories (via `.gitkeep`) so Docker can mount them with correct permissions from the first run.
 
 ---
 

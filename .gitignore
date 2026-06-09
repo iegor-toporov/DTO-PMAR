@@ -30,5 +30,8 @@ frontend/.vite/
 
 tmp/
 
+# Script solo per dev locale, non usato da Docker
+scripts/start.sh
+
 # Token privati
 .git_token
