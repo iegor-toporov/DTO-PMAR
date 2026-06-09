@@ -2,7 +2,25 @@
 
 A lightweight web application for Lagrangian particle tracking in the ocean. It combines an OGC API Processing backend with an interactive map frontend to simulate how substances and organisms disperse under real ocean currents, and to compute particle density maps with the PMAR engine.
 
----
+## GUI Preview
+
+![OpenDrift example usage. Parameters on the left side.](images/OpenDrift_demo_1.png)
+
+<p align="center">OpenDrift example usage. Parameters on the left side.</p>
+
+
+<br>
+
+![PMAR analysis - particle density heatmap using Tracer model. Res 0.05º.](images/PMAR_example_1.png)
+<p align="center">PMAR analysis - particle density heatmap using Tracer model. Res 0.05º.
+</p>
+
+<br>
+
+![PMAR analysis - particle density heatmap using Tracer model. Res 0.05º. Tools as floating windows on top.](images/PMAR_example_2.png)
+<p align="center">PMAR analysis - particle density heatmap using Tracer model. Res 0.05º. Tools as floating windows on top.</p>
+
+
 
 ## Architecture
 
@@ -54,7 +72,7 @@ DTO-PMAR/
 
 **Frontend:** React 19 + Vite SPA with Mantine v9 and react-leaflet. In production it is built into a static bundle and served by **nginx**, which also proxies `/processes/*` to the backend. Communicates with the backend via `POST /processes/<process>/execution`.
 
----
+
 
 ## Requirements
 
@@ -63,7 +81,7 @@ DTO-PMAR/
 - A `.git_token` file containing a GitHub personal access token with read access to the private PMAR repo (used only at image build time)
 - A free [Copernicus Marine](https://marine.copernicus.eu/) account
 
----
+
 
 ## Getting started
 
@@ -79,7 +97,7 @@ The frontend is served at `http://localhost:80`. The backend runs on port 5001 (
 
 `cache/`, `out/`, and `scenarios/` are tracked in git as empty directories (via `.gitkeep`) so Docker can mount them with correct permissions from the first run.
 
----
+
 
 ## OpenDrift process
 
@@ -112,7 +130,7 @@ Models marked **Vertical** use dynamic CMEMS depth: the seafloor depth (`deptho`
 
 JSON with `times` (ISO timestamps array), `steps` (per-timestep particle positions `[lon, lat]`), and `model` name.
 
----
+
 
 ## PMAR workflow
 
@@ -163,7 +181,7 @@ Once a simulation is selected from the Simulation tab, the Analysis tab allows r
 
 Running the analysis produces a particle density heatmap overlaid on the map.
 
----
+
 
 ## Precompute process
 
@@ -197,7 +215,7 @@ Exactly one of `geojson`, `shapefile_b64`, or `t4msp_area_id` must be provided.
 { "scenario_id": "custom_a1b2c3d4", "status": "done", "nc_filename": "custom_a1b2c3d4.nc" }
 ```
 
----
+
 
 ## Scenario status process
 
@@ -235,7 +253,7 @@ Returns the list of all saved custom scenarios and the available Tools4MSP geogr
 }
 ```
 
----
+
 
 ## PMAR process
 
@@ -330,7 +348,7 @@ pmar_<pressure>_<YYYYMMDD>-<YYYYMMDD>_p<pnum>[_<use_source>].tif
 
 `pmar.py` hardcodes `PROJ_LIB` to a conda path at import time, corrupting PROJ for pyproj and rasterio. PMARProcess.py removes both `PROJ_LIB` and `PROJ_DATA` from the environment after importing PMAR, allowing each library to find its own data directory.
 
----
+
 
 ## Anthropogenic layers
 
@@ -352,7 +370,7 @@ Two lightweight processes allow the frontend to preview layer coverage before ru
 
 Both accept `lon_min`, `lat_min`, `lon_max`, `lat_max` as inputs.
 
----
+
 
 ## CMEMS data
 
@@ -396,7 +414,7 @@ The `deptho` (seafloor depth) field is downloaded once per geographic area from 
 
 Wind and waves downloads are non-blocking: if the dataset is unavailable the simulation continues with currents only (OpenDrift falls back to parametric Stokes drift from wind).
 
----
+
 
 ## Frontend features
 
@@ -434,13 +452,7 @@ Wind and waves downloads are non-blocking: if the dataset is unavailable the sim
 - **Natura 2000 layer**: protected marine areas fetched from the EmodNet WFS and displayed as a semi-transparent overlay. Toggled from the PMAR controls bar.
 - **Analysis tools panel** (right side, vertically centred): six labelled buttons — Histogram, Statistics, Profile, Threshold, CSV, Compare — active only when a PMAR raster is loaded. A "Close all" button appears when analysis windows are open.
 
----
 
-## Examples
-
-![PMAR analysis — particle density heatmap using larvae model. Res 0.05º.](images/example_analysis.png)
-
-![PMAR analysis - particle density heatmap using larvae model. Res 0.01º.](images/example_analysis_2.png)
 
 ## Logging
 

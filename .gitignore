@@ -17,7 +17,7 @@ cache/*
 scenarios/*
 !scenarios/.gitkeep
 
-# pygeoapi generato
+# pygeoapi generated
 pygeoapi-openapi.yml
 
 # Frontend
@@ -33,5 +33,7 @@ tmp/
 # Script solo per dev locale, non usato da Docker
 scripts/start.sh
 
-# Token privati
+# Private tokens and secrets
 .git_token
+!.env.example
+
