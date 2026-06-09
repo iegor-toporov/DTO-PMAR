@@ -77,4 +77,4 @@ volumes:
 
 secrets:
   git_token:
-    file: .git_token
+    environment: GIT_TOKEN

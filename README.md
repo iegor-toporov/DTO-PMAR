@@ -67,7 +67,7 @@ DTO-PMAR/
 
 - Docker and Docker Compose
 - A `.env` file with runtime secrets (see below)
-- A `.git_token` file containing a GitHub personal access token with read access to the private PMAR repo (used only at image build time)
+- A GitHub personal access token (read access to the private PMAR repo) set as `GIT_TOKEN` in `.env` (used only at image build time)
 - A free [Copernicus Marine](https://marine.copernicus.eu/) account
 
 ## Getting started
@@ -75,8 +75,7 @@ DTO-PMAR/
 ```bash
 git clone <repo>
 cd DTO-PMAR
-# Copy .env.example to .env and fill in your credentials
-# Place your GitHub token in .git_token
+# Copy .env.example to .env and fill in your credentials (including GIT_TOKEN)
 docker compose up --build -d
 ```
 
