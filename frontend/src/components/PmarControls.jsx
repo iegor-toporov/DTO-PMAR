@@ -3,7 +3,7 @@ import { IconEye, IconEyeOff, IconDownload, IconCircle, IconWind, IconDroplet } 
 import { useLang } from '../LanguageContext'
 
 const INDICATORS_BASE = [
-  { key: 'density', labelKey: 'indicatorDensity' },
+  { key: 'ppi', labelKey: 'indicatorDensity' },
   { key: 'sum',     labelKey: 'indicatorSum' },
   { key: 'max',     labelKey: 'indicatorMax' },
   { key: 'q90',     labelKey: 'indicatorQ90' },

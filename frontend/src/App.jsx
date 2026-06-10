@@ -581,7 +581,7 @@ function ComparisonView({ areas, mapRef, mapTheme, onRemoveArea, onClose }) {
 // ── Pure helper (outside component so reference is stable for useMemo) ───────
 function getActivePmarData(data, indicator) {
   if (!data) return null
-  if (!indicator || indicator === 'density') return data
+  if (!indicator || indicator === 'ppi') return data
   if (indicator === 'std') {
     if (!data.std_raster_values) return data
     return {
@@ -676,7 +676,7 @@ export default function App() {
   const [pmarErrorMsg,    setPmarErrorMsg]    = useState(null)
   const [showPmarRaster,   setShowPmarRaster]   = useState(true)
   const [showWindFarms,    setShowWindFarms]    = useState(true)
-  const [activeIndicator,  setActiveIndicator]  = useState('density')
+  const [activeIndicator,  setActiveIndicator]  = useState('ppi')
   const [activeMapTool,     setActiveMapTool]     = useState(null)
   const [histograms,        setHistograms]        = useState([])
   const [statsEntries,      setStatsEntries]      = useState([])
@@ -959,7 +959,7 @@ export default function App() {
       setPmarData(data)
       if (data.bounds && mapRef.current)
         mapRef.current.fitBounds(L.latLngBounds(data.bounds), { padding: [50, 50] })
-      setActiveIndicator('density')
+      setActiveIndicator('ppi')
       setActiveMapTool(null)
       setHistograms(prev        => { prev.forEach(h => h.layer?.remove()); return [] })
       setStatsEntries(prev      => { prev.forEach(h => h.layer?.remove()); return [] })
@@ -1088,8 +1088,8 @@ export default function App() {
   }
 
   function handleDownloadPmar() {
-    const ind        = activeIndicator || 'density'
-    const geotiffKey = ind === 'density' ? 'geotiff_b64' : `${ind}_geotiff_b64`
+    const ind        = activeIndicator || 'ppi'
+    const geotiffKey = ind === 'ppi' ? 'geotiff_b64' : `${ind}_geotiff_b64`
     if (!pmarData?.[geotiffKey]) return
     const bytes = atob(pmarData[geotiffKey])
     const buf   = new Uint8Array(bytes.length)
